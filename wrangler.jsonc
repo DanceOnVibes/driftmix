@@ -1,0 +1,12 @@
+// Cloudflare settings for DriftMix.
+// Cloudflare runs "npm install && npm run build", then serves the dist folder.
+// There's no server code and no database: everything runs in the browser.
+{
+  "name": "driftmix",
+  "compatibility_date": "2026-06-01",
+  "assets": {
+    "directory": "./dist"
+  },
+  // Branch builds get their own preview link before merging.
+  "previews": {}
+}

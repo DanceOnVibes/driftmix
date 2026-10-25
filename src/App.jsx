@@ -1,0 +1,61 @@
+import { useEffect, useState } from "react";
+import { DeckPanel } from "./components/DeckPanel.jsx";
+import { decks, setCrossfader } from "./audio/engine.js";
+
+const SITE = "https://thedrift3r.com";
+const SOURCE = "https://github.com/DanceOnVibes/driftmix";
+
+export function App() {
+  const [fader, setFader] = useState(0);
+
+  useEffect(() => setCrossfader(fader), [fader]);
+
+  return (
+    <div className="app">
+      <header className="top">
+        <div className="brand">
+          <h1>DriftMix</h1>
+          <a className="by" href={SITE}>
+            by The Drift3r
+          </a>
+        </div>
+        <p className="status">Version 1 in progress: decks and playback. BPM, key and the transition button come next.</p>
+      </header>
+
+      <main>
+        <div className="decks">
+          <DeckPanel deck={decks.a} title="Deck A" />
+          <DeckPanel deck={decks.b} title="Deck B" />
+        </div>
+
+        <section className="mixer" aria-label="Crossfader">
+          <span className="mixer-end">A</span>
+          <input
+            type="range"
+            min="-1"
+            max="1"
+            step="0.01"
+            value={fader}
+            onChange={(e) => setFader(Number(e.target.value))}
+            onDoubleClick={() => setFader(0)}
+            aria-label="Crossfader: left is deck A, right is deck B"
+            data-testid="crossfader"
+          />
+          <span className="mixer-end">B</span>
+        </section>
+        <p className="hint">Double-click the crossfader to centre it. Mixing works best on a laptop.</p>
+      </main>
+
+      <footer className="foot">
+        <p className="promise">Your tracks never leave your computer. Nothing is uploaded.</p>
+        <p>
+          Free and open source (AGPL-3.0) · <a href={SOURCE}>Source code</a> · <a href={`${SITE}/privacy`}>Privacy</a>
+        </p>
+        <p className="muted">
+          © {new Date().getFullYear()} DanceOnVibes Limited. Registered in England and Wales, company no. 17423769.
+          Registered office: 167–169 Great Portland Street, London W1W 5PF, United Kingdom.
+        </p>
+      </footer>
+    </div>
+  );
+}
