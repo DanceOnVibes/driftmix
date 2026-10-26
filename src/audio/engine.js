@@ -10,6 +10,7 @@
  */
 import { computePeaks } from "../lib/peaks.js";
 import { crossfadeGains, clamp, pressCue } from "../lib/mixer.js";
+import { analyzeBuffer } from "./analysis.js";
 
 /** Smooth volume changes over ~15 ms so faders never click. */
 const SMOOTH = 0.015;
@@ -35,12 +36,19 @@ export class Deck {
     this.buffer = null;
     this.name = "";
     this.peaks = null;
+    /**
+     * Tempo and key: { status: "none" | "working" | "done" | "failed",
+     *                  tempo: { bpm, firstBeat, sure } | null,
+     *                  key: { camelot, name, sure } | null }
+     */
+    this.analysis = { status: "none", tempo: null, key: null };
     this.source = null;
     this.playing = false;
     this.offset = 0; // where in the track we are while paused (seconds)
     this.startedAt = 0; // context time when playback last started
     this.cue = 0;
     this.listeners = new Set();
+    this.loadTicket = 0;
     this.volume = 1;
     this.fader = 1;
     this.volumeNode = null;
@@ -63,9 +71,13 @@ export class Deck {
   /** Read a file from the computer and get it ready to play. */
   async load(file) {
     const ctx = this.ensureNodes();
-    this.stop();
+    // If another track is dropped before this one finishes reading, the
+    // newest one wins.
+    const ticket = ++this.loadTicket;
     const bytes = await file.arrayBuffer();
     const buffer = await ctx.decodeAudioData(bytes);
+    if (ticket !== this.loadTicket) return;
+    this.stop();
     const channels = [];
     for (let c = 0; c < buffer.numberOfChannels; c++) channels.push(buffer.getChannelData(c));
     this.buffer = buffer;
@@ -73,6 +85,21 @@ export class Deck {
     this.peaks = computePeaks(channels, WAVEFORM_BARS);
     this.offset = 0;
     this.cue = 0;
+    this.analysis = { status: "working", tempo: null, key: null };
+    this.emit();
+    // Tempo and key are read in the background; the track can play meanwhile.
+    void this.analyze(buffer);
+  }
+
+  async analyze(buffer) {
+    try {
+      const result = await analyzeBuffer(buffer);
+      if (this.buffer !== buffer) return; // a newer track was loaded meanwhile
+      this.analysis = { status: "done", tempo: result.tempo, key: result.key };
+    } catch {
+      if (this.buffer !== buffer) return;
+      this.analysis = { status: "failed", tempo: null, key: null };
+    }
     this.emit();
   }
 

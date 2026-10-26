@@ -44,6 +44,16 @@ main { flex: 1; }
 .deck-time { margin: 0; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
 .deck-error { margin: 0; color: var(--danger); font-size: 0.9rem; }
 
+/* BPM and key readout */
+.readout-wrap { display: flex; flex-direction: column; gap: 4px; }
+.readout { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.stat { margin: 0; min-width: 0; display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; padding: 8px 12px; background: #000; border: 1px solid var(--line); border-radius: 10px; }
+.stat-label { font-size: 0.7rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); }
+.stat-value { color: var(--silver); font-size: 1.5rem; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.stat-key { color: var(--gold-bright); }
+.stat-sub { color: var(--muted); font-size: 0.85rem; white-space: nowrap; }
+.readout-note { margin: 0; min-height: 1.2em; color: var(--muted); font-size: 0.8rem; }
+
 .waveform { display: block; width: 100%; height: 120px; background: #000; border-radius: 10px; border: 1px solid var(--line); cursor: pointer; touch-action: none; }
 
 .deck-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }

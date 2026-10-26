@@ -81,6 +81,8 @@ export function DeckPanel({ deck, title }) {
         />
       </header>
 
+      <Readout deck={deck} loaded={loaded} />
+
       <Waveform
         peaks={deck.peaks}
         progress={progress}
@@ -128,5 +130,57 @@ export function DeckPanel({ deck, title }) {
         </label>
       </div>
     </section>
+  );
+}
+
+/** BPM and key boxes under the track name. "?" means not fully sure. */
+function Readout({ deck, loaded }) {
+  const { status, tempo, key } = deck.analysis;
+  const id = deck.id;
+  let bpmText = "–";
+  let keyText = "–";
+  let keySub = "";
+  if (loaded && status === "working") {
+    bpmText = "…";
+    keyText = "…";
+  } else if (loaded && status === "failed") {
+    bpmText = "Error";
+    keyText = "Error";
+  } else if (loaded && status === "done") {
+    bpmText = tempo ? `${Number.isInteger(tempo.bpm) ? tempo.bpm : tempo.bpm.toFixed(1)}${tempo.sure ? "" : "?"}` : "Not found";
+    keyText = key ? `${key.camelot}${key.sure ? "" : "?"}` : "Not found";
+    keySub = key ? key.name : "";
+  }
+  const unsure = status === "done" && ((tempo && !tempo.sure) || (key && !key.sure));
+  const note =
+    status === "working"
+      ? "Reading tempo and key…"
+      : status === "failed"
+        ? "Couldn't read tempo or key from this file."
+        : unsure
+          ? "? = not fully sure. Check it by ear."
+          : "";
+
+  return (
+    <div className="readout-wrap">
+      <div className="readout" aria-busy={status === "working"}>
+        <p className="stat">
+          <span className="stat-label">BPM</span>
+          <span className="stat-value" data-testid={`bpm-${id}`}>
+            {bpmText}
+          </span>
+        </p>
+        <p className="stat">
+          <span className="stat-label">Key</span>
+          <span className="stat-value stat-key" data-testid={`key-${id}`}>
+            {keyText}
+          </span>
+          {keySub && <span className="stat-sub">{keySub}</span>}
+        </p>
+      </div>
+      <p className="readout-note" role="status">
+        {note}
+      </p>
+    </div>
   );
 }
