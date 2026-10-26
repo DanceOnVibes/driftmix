@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { DeckPanel } from "./components/DeckPanel.jsx";
+import { MatchPanel } from "./components/MatchPanel.jsx";
 import { decks, setCrossfader } from "./audio/engine.js";
 
 const SITE = "https://thedrift3r.com";
@@ -19,7 +20,7 @@ export function App() {
             by The Drift3r
           </a>
         </div>
-        <p className="status">Version 1 in progress: decks, playback, BPM and key. The match light and the transition button come next.</p>
+        <p className="status">Version 1 in progress: decks, playback, BPM, key and the match light. The transition button comes next.</p>
       </header>
 
       <main>
@@ -27,6 +28,8 @@ export function App() {
           <DeckPanel deck={decks.a} title="Deck A" />
           <DeckPanel deck={decks.b} title="Deck B" />
         </div>
+
+        <MatchPanel a={decks.a} b={decks.b} />
 
         <section className="mixer" aria-label="Crossfader">
           <span className="mixer-end">A</span>
