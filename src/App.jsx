@@ -19,7 +19,7 @@ export function App() {
             by The Drift3r
           </a>
         </div>
-        <p className="status">Version 1 in progress: decks and playback. BPM, key and the transition button come next.</p>
+        <p className="status">Version 1 in progress: decks, playback, BPM and key. The match light and the transition button come next.</p>
       </header>
 
       <main>
