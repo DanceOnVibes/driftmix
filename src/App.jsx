@@ -3,6 +3,7 @@ import { DeckPanel } from "./components/DeckPanel.jsx";
 import { MatchPanel } from "./components/MatchPanel.jsx";
 import { TransitionPanel } from "./components/TransitionPanel.jsx";
 import { AutoDjPanel } from "./components/AutoDjPanel.jsx";
+import { FilesPanel } from "./components/FilesPanel.jsx";
 import { decks, crossfader, setCrossfader } from "./audio/engine.js";
 
 const SITE = "https://thedrift3r.com";
@@ -23,7 +24,11 @@ export function App() {
             by The Drift3r
           </a>
         </div>
-        <p className="status">Version 1: two decks, BPM and key, match light, one-press transitions and Auto DJ.</p>
+        <nav className="jump" aria-label="Sections">
+          <a href="#autodj">Auto DJ</a>
+          <a href="#files">Files</a>
+        </nav>
+        <p className="status">Two decks, BPM and key, match light, one-press transitions, Auto DJ and Files.</p>
       </header>
 
       <main>
@@ -58,12 +63,14 @@ export function App() {
         </p>
 
         <AutoDjPanel />
+        <FilesPanel />
       </main>
 
       <footer className="foot">
         <p className="promise">Your tracks never leave your computer. Nothing is uploaded.</p>
         <p>
-          Free and open source (AGPL-3.0) · <a href={SOURCE}>Source code</a> · <a href={`${SITE}/privacy`}>Privacy</a>
+          Free and open source (AGPL-3.0) · <a href={SOURCE}>Source code</a> · <a href={`${SITE}/privacy`}>Privacy</a> · MP3
+          encoding by <a href="https://lame.sourceforge.io">LAME</a> (via lamejs, LGPL)
         </p>
         <p className="muted">
           © {new Date().getFullYear()} DanceOnVibes Limited. Registered in England and Wales, company no. 17423769.

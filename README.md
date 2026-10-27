@@ -13,7 +13,9 @@ Built under DanceOnVibes Limited. Free and open source under the AGPL-3.0.
 | 3 | BPM and key detection, Camelot codes | Done |
 | 4 | Compatibility light and fix suggestions | Done |
 | 5 | Transition button: beat-match, 8/16/32-bar blend, bass swap | Done |
-| 5b | Auto DJ: a playlist that mixes itself | **This version** |
+| 5b | Auto DJ: a playlist that mixes itself | Done |
+| 5c | Files: convert, tag and tidy tracks | **This version** |
+| 5d | Record the set + tempo journey | Next |
 | 6 | Launch at thedrift3r.com/driftmix | Next |
 
 ## How it works
@@ -27,6 +29,7 @@ Built under DanceOnVibes Limited. Free and open source under the AGPL-3.0.
 - **Tight beats:** analysis also finds the downbeat (bar one, from where chords and bass change). Just before every mix, tempo and beats are re-measured in the exact stretch about to play, for both tracks, and the start points snap to the real beats (produced tracks drift a little; 0.1 BPM off is ~20 ms by the end of a 16-bar blend). Auto DJ starts its mixes on 8-bar phrase lines and blends "?" tracks over 8 bars.
 - **Mid (vocal) swap:** alongside the bass swap, the incoming track's mids (≈400 Hz–3.5 kHz, where vocals sit) are dipped 18 dB until half way, so two voices don't talk over each other; you hear its groove first, as a hint.
 - **Set tempo:** Auto DJ locks the set to the first track's tempo or one you pick (120–150); skipped tracks say exactly why.
+- **Files:** MP3 (LAME via lamejs, 128–320 kbps) or WAV (16/24-bit), sample rate (original, 44.1 or 48 kHz, using the browser's own resampler), stereo or mono, titles and tags (ID3v2.3 in MP3; LIST/INFO + id3 chunk in WAV) with BPM, key, Camelot, cover art, copyright and a comment, loudness levelled to −14 or −9 LUFS (BS.1770 meter, peaks kept under −1 dB, no limiter), silence trimmed, smart file names, download one, all (zip) or share on a phone.
 - **Privacy:** tracks are read from the computer with the browser's file reader and decoded in the page. Nothing is uploaded.
 - **Hosting:** Cloudflare builds it (`npm install && npm run build`) and serves the `dist` folder. Branches get a preview link.
 
@@ -39,6 +42,7 @@ Built under DanceOnVibes Limited. Free and open source under the AGPL-3.0.
 | `src/components/MatchPanel.jsx` | The match light under the decks |
 | `src/components/TransitionPanel.jsx` | Mix button, blend length, key fix, progress |
 | `src/components/AutoDjPanel.jsx` | Auto DJ: playlist, order, start/stop |
+| `src/components/FilesPanel.jsx` | Files: settings, tags, list, convert, download |
 | `src/components/Waveform.jsx` | Draws the waveform; click to jump |
 | `src/audio/engine.js` | The sound: decks, play/pause/cue/seek, volume, bass EQ, crossfader |
 | `src/lib/peaks.js` | Turns a track into waveform bars |
@@ -53,6 +57,9 @@ Built under DanceOnVibes Limited. Free and open source under the AGPL-3.0.
 | `src/lib/stretch.js` | Time-stretch with key lock (WSOLA) |
 | `src/audio/autodj.js` | Runs the Auto DJ set: reads tracks, loads decks, triggers each mix |
 | `src/lib/setlist.js` | Set order (flowing keys, tempo lock) and when to mix out |
+| `src/audio/files.js`, `src/audio/files.worker.js` | Files: reading, resampling, converting in the background |
+| `src/lib/files/` | WAV and MP3 writers, ID3 tags, zip, loudness meter, silence trim, names, format sniffing (+ tests) |
+| `src/vendor/lame.js` | lamejs (LAME MP3 encoder), LGPL — see `LAME-LICENSE` |
 | `src/lib/match.js` | Match light rules: tempo and key verdicts, fix suggestions |
 | `src/lib/analyze.js` | Runs both detectors; hides weak answers, marks unsure ones |
 | `src/lib/downbeat.js` | Finds bar one (the downbeat) |
