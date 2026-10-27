@@ -147,6 +147,15 @@ async function inspect(it) {
   files.emit();
 }
 
+/**
+ * The Files list, ready to hand to Auto DJ: the original files (best sound,
+ * no extra encoding), in list order, with the titles as edited here.
+ * @returns {{ file: File, name: string }[]}
+ */
+export function filesForAutoDj() {
+  return files.items.filter((it) => it.status !== "failed").map((it) => ({ file: it.file, name: it.title || cleanTitle(it.file.name) }));
+}
+
 export function removeItem(id) {
   const it = files.items.find((x) => x.id === id);
   if (!it || files.busy) return;

@@ -4,6 +4,7 @@ import { stepCost } from "../lib/setlist.js";
 import { BAR_CHOICES } from "../lib/transition.js";
 import { mix } from "../audio/transition.js";
 import { decks } from "../audio/engine.js";
+import { files, filesForAutoDj } from "../audio/files.js";
 import {
   autoDj,
   addTracks,
@@ -33,7 +34,7 @@ const STEP_WORDS = { green: "flows", amber: "mixable", red: "clash" };
 export function AutoDjPanel() {
   const [, refresh] = useReducer((n) => n + 1, 0);
   useEffect(() => {
-    const offs = [autoDj.subscribe(refresh), mix.subscribe(refresh), decks.a.subscribe(refresh), decks.b.subscribe(refresh)];
+    const offs = [autoDj.subscribe(refresh), mix.subscribe(refresh), decks.a.subscribe(refresh), decks.b.subscribe(refresh), files.subscribe(refresh)];
     return () => offs.forEach((off) => off());
   }, []);
   const inputRef = useRef(null);
@@ -46,6 +47,8 @@ export function AutoDjPanel() {
   const readingCount = tracks.filter((t) => t.status === "reading").length;
   const length = setLength();
   const live = new Set([autoDj.onDeck.a, autoDj.onDeck.b].filter(Boolean));
+  const fromFiles = filesForAutoDj();
+  const hint = autoDj.on ? "" : whyNot({ tracks, ready, readingCount, setBpm });
 
   // How each playable track flows from the playable one before it.
   const flow = new Map();
@@ -99,6 +102,11 @@ export function AutoDjPanel() {
         <button type="button" className="btn btn-ghost" onClick={() => inputRef.current?.click()}>
           Add tracks
         </button>
+        {tracks.length === 0 && fromFiles.length > 0 && (
+          <button type="button" className="btn btn-ghost" onClick={() => addTracks(filesForAutoDj())} data-testid="from-files">
+            Use my {fromFiles.length} from Files
+          </button>
+        )}
         <input
           ref={inputRef}
           type="file"
@@ -169,6 +177,11 @@ export function AutoDjPanel() {
               setBpm ? ` · set tempo ${fmt(setBpm)} BPM` : ""
             }${length ? ` · about ${formatTime(length)} of music` : ""}`}
       </p>
+      {hint && (
+        <p className="muted fnote" data-testid="autodj-hint">
+          {hint}
+        </p>
+      )}
       {autoDj.message && (
         <p className="autodj-note" data-testid="autodj-note">
           {autoDj.message}
@@ -218,6 +231,18 @@ export function AutoDjPanel() {
       )}
     </section>
   );
+}
+
+/** Why Order or Start is greyed out, in plain words ("" when both work). */
+function whyNot({ tracks, ready, readingCount, setBpm }) {
+  if (tracks.length === 0) return "";
+  if (readingCount > 0) return "Reading BPM and key… Order and Start wake up when it's done.";
+  if (ready.length >= 3) return "";
+  const where = setBpm ? ` at ${fmt(setBpm)} BPM` : "";
+  const fit = `${ready.length} track${ready.length === 1 ? "" : "s"} fit${ready.length === 1 ? "s" : ""} the set${where}`;
+  if (ready.length === 2) return `${fit}: enough to Start, but Order needs 3. Add more tracks, or pick another Set tempo.`;
+  const lead = ready.length === 0 ? `No tracks fit the set${where}` : `Only ${fit}`;
+  return `${lead}. Start needs 2 and Order needs 3: add more tracks, pick another Set tempo, or move a different track to the top.`;
 }
 
 function skipPercent(track, setBpm) {

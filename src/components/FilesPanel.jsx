@@ -17,7 +17,9 @@ import {
   shareDone,
   nameFor,
   targetRate,
+  filesForAutoDj,
 } from "../audio/files.js";
+import { autoDj, addTracks } from "../audio/autodj.js";
 
 const STATUS = { reading: "Reading…", ready: "Ready", converting: "Converting", done: "Done", failed: "Can't read", error: "Failed" };
 
@@ -27,7 +29,10 @@ const STATUS = { reading: "Reading…", ready: "Ready", converting: "Converting"
  */
 export function FilesPanel() {
   const [, refresh] = useReducer((n) => n + 1, 0);
-  useEffect(() => files.subscribe(refresh), []);
+  useEffect(() => {
+    const offs = [files.subscribe(refresh), autoDj.subscribe(refresh)];
+    return () => offs.forEach((off) => off());
+  }, []);
   const inputRef = useRef(null);
   const coverRef = useRef(null);
   const [dragging, setDragging] = useState(false);
@@ -277,6 +282,21 @@ export function FilesPanel() {
           {share && done.length > 0 && (
             <button type="button" className="btn btn-ghost" onClick={() => void shareDone()} disabled={files.busy}>
               Share
+            </button>
+          )}
+          {!autoDj.on && items.some((it) => it.status !== "failed") && (
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => {
+                const n = addTracks(filesForAutoDj());
+                files.message = `${n} track${n === 1 ? "" : "s"} sent to Auto DJ.`;
+                files.emit();
+                document.getElementById("autodj")?.scrollIntoView({ behavior: "smooth" });
+              }}
+              data-testid="to-autodj"
+            >
+              Send to Auto DJ
             </button>
           )}
           {!files.busy && (
