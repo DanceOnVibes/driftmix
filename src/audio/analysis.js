@@ -63,6 +63,15 @@ export function analyzeBuffer(buffer) {
 }
 
 /**
+ * Does the tempo stay the same all the way through? (Read in sections.)
+ * @returns {Promise<{ level: "steady"|"slight"|"wanders"|"unknown", min: number|null, max: number|null, percent: number }>}
+ */
+export function tempoSteadiness(buffer, bpm) {
+  const samples = mono(buffer);
+  return run("analyze", { type: "sections", samples, sampleRate: buffer.sampleRate, bpm }, [samples.buffer]);
+}
+
+/**
  * A time-stretched copy of a track, keeping its pitch.
  * @param {AudioBuffer} buffer
  * @param {number} tempo  e.g. 0.99 = 1% slower

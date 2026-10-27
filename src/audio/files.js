@@ -4,9 +4,11 @@
  * Add → each file is looked at (format, sample rate) and read for BPM and
  * key, then let go to save memory. Convert → one at a time: decode at the
  * target sample rate (the browser's own high-quality resampler), then the
- * worker trims, levels and encodes, with the tags written in.
+ * worker sets the exact BPM and key (if asked), trims, levels and encodes,
+ * with the tags written in.
  */
-import { analyzeBuffer } from "./analysis.js";
+import { analyzeBuffer, tempoSteadiness } from "./analysis.js";
+import { retunePlan } from "../lib/files/retune.js";
 import { sniff } from "../lib/files/sniff.js";
 import { MP3_RATES } from "../lib/files/mp3.js";
 import { makeZip } from "../lib/files/zip.js";
@@ -117,7 +119,7 @@ let reading = Promise.resolve();
 export function addFiles(list) {
   const picked = [...list].filter((f) => f.type.startsWith("audio/") || AUDIO_NAME.test(f.name));
   for (const file of picked) {
-    const it = { id: String(nextId++), file, title: cleanTitle(file.name), status: "reading", info: null, analysis: null, duration: 0, output: null, progress: 0, note: "" };
+    const it = { id: String(nextId++), file, title: cleanTitle(file.name), status: "reading", info: null, analysis: null, duration: 0, output: null, progress: 0, note: "", targetBpm: null, semitones: 0, steady: null };
     files.items.push(it);
     reading = reading.then(() => inspect(it));
   }
@@ -147,10 +149,60 @@ async function inspect(it) {
       keyAlt: result.key?.alt?.camelot ?? null,
     };
     it.status = "ready";
+    files.emit();
+    // Then: does the tempo stay the same all through? (Exact BPM can only
+    // set the average.) Takes a couple of seconds, so it comes second.
+    if (it.analysis.bpm) it.steady = await tempoSteadiness(buffer, it.analysis.bpm).catch(() => null);
   } catch {
     it.status = "failed";
     it.note = "This file couldn't be read.";
   }
+  files.emit();
+}
+
+// ---- exact BPM and key ---------------------------------------------------
+
+/** The most a track can be pushed: past 6% vocals start to sound off. */
+export const BPM_SAFE = 6;
+
+/** What a track will come out as: tempo, key and how big the change is. */
+export function planFor(it) {
+  return retunePlan(it.analysis || {}, { targetBpm: it.targetBpm, semitones: it.semitones });
+}
+
+/** Exact BPM for one track ("" or 0 = keep its own). */
+export function setTarget(id, value) {
+  const it = files.items.find((x) => x.id === id);
+  if (!it || files.busy) return;
+  const n = Number(String(value).replace(",", "."));
+  it.targetBpm = n >= 40 && n <= 250 ? Math.round(n * 100) / 100 : null;
+  changed(it);
+}
+
+/** Key shift for one track, in semitones (−2 … +2). */
+export function setShift(id, semitones) {
+  const it = files.items.find((x) => x.id === id);
+  if (!it || files.busy) return;
+  it.semitones = Math.max(-2, Math.min(2, Math.round(Number(semitones) || 0)));
+  changed(it);
+}
+
+/** Every track to its nearest whole BPM (132.1 → 132), the usual tidy-up. */
+export function roundAll() {
+  if (files.busy) return;
+  for (const it of files.items) {
+    if (!it.analysis?.bpm) continue;
+    it.targetBpm = Math.round(it.analysis.bpm);
+    changed(it, false);
+  }
+  clearZip();
+  files.emit();
+}
+
+function changed(it, emit = true) {
+  if (it.status === "done") clearOutput(it, "ready");
+  if (!emit) return;
+  clearZip();
   files.emit();
 }
 
@@ -257,7 +309,7 @@ export function targetRate(it, settings = files.settings) {
 /** The tags written into a file. */
 export function tagsFor(it, index) {
   const c = files.common;
-  const a = it.analysis || {};
+  const a = planFor(it);
   const comment = [a.camelot, c.comment].filter(Boolean).join(" · ");
   return {
     title: it.title,
@@ -281,8 +333,8 @@ export function nameFor(it, index) {
     track: s.numbering ? index + 1 : undefined,
     artist: files.common.artist,
     title: it.title || "Untitled",
-    bpm: it.analysis?.bpm,
-    camelot: it.analysis?.camelot,
+    bpm: planFor(it).bpm,
+    camelot: planFor(it).camelot,
     ext: s.format === "mp3" ? "mp3" : "wav",
     withInfo: s.infoInName,
   });
@@ -312,6 +364,7 @@ export async function convertAll() {
       it.progress = 0.1;
       files.emit();
       const settings = { ...files.settings };
+      const plan = planFor(it);
       const id = jobId++;
       const result = await new Promise((resolve, reject) => {
         waiting.set(id, {
@@ -322,7 +375,7 @@ export async function convertAll() {
             files.emit();
           },
         });
-        getWorker().postMessage({ id, channels, sampleRate: rate, settings, tags: tagsFor(it, index) }, channels.map((c) => c.buffer));
+        getWorker().postMessage({ id, channels, sampleRate: rate, settings, plan, tags: tagsFor(it, index) }, channels.map((c) => c.buffer));
       });
       const type = settings.format === "mp3" ? "audio/mpeg" : "audio/wav";
       const blob = new Blob([result.bytes], { type });
@@ -330,6 +383,8 @@ export async function convertAll() {
       it.status = "done";
       it.progress = 1;
       const notes = [];
+      if (plan.tempo !== 1) notes.push(`exactly ${fmtBpm(plan.bpm)} BPM (${plan.percent > 0 ? "+" : "−"}${Math.abs(plan.percent).toFixed(1)}%)`);
+      if (plan.semitones) notes.push(`key ${plan.semitones > 0 ? "+" : "−"}${Math.abs(plan.semitones)} → ${plan.camelot}`);
       if (result.loudness) notes.push(`${fmtLufs(result.loudness.result)} LUFS${result.loudness.heldBack ? " (peaks kept safe, so a little under)" : ""}`);
       if (result.trimmed > 0.05) notes.push(`trimmed ${result.trimmed.toFixed(1)} s of silence`);
       if (settings.sampleRate === "original" && settings.format === "mp3" && rate !== it.info?.sampleRate) notes.push(`${rate / 1000} kHz (MP3 can't do ${it.info?.sampleRate / 1000} kHz)`);
@@ -344,6 +399,10 @@ export async function convertAll() {
   files.busy = false;
   files.message = `${done} of ${todo.length} converted.`;
   files.emit();
+}
+
+function fmtBpm(x) {
+  return String(Math.round(x * 100) / 100);
 }
 
 function fmtLufs(x) {
