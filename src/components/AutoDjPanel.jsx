@@ -202,8 +202,12 @@ export function AutoDjPanel() {
                 <span className="row-name" title={t.name}>
                   {t.name}
                 </span>
-                <span className="row-bpm">{t.tempo ? fmt(t.tempo.bpm) : "–"}</span>
-                <span className="row-key">{t.key ? t.key.camelot : "–"}</span>
+                <span className="row-bpm" title={t.tempo && !t.tempo.sure ? "Not fully sure: check by ear" : ""}>
+                  {t.tempo ? `${fmt(t.tempo.bpm)}${t.tempo.sure ? "" : "?"}` : "–"}
+                </span>
+                <span className="row-key" title={t.key && !t.key.sure ? (t.key.alt ? `Close call: maybe ${t.key.alt.camelot} (${t.key.alt.name})` : "Not fully sure: check by ear") : ""}>
+                  {t.key ? `${t.key.camelot}${t.key.sure ? "" : "?"}` : "–"}
+                </span>
                 <span className="row-time">{t.duration ? formatTime(t.duration) : ""}</span>
                 <span className="row-badge" title={skipReason(t, setBpm)}>
                   {badge(t)}

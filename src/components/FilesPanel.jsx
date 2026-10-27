@@ -327,8 +327,9 @@ function describe(it) {
     if (i.bitDepth) parts.push(`${i.bitDepth}-bit`);
   }
   if (it.duration) parts.push(formatTime(it.duration));
-  if (it.analysis?.bpm) parts.push(`${Math.round(it.analysis.bpm * 10) / 10} BPM`);
-  if (it.analysis?.camelot) parts.push(it.analysis.camelot);
+  const a = it.analysis;
+  if (a?.bpm) parts.push(`${Math.round(a.bpm * 10) / 10}${a.bpmSure ? "" : "?"} BPM`);
+  if (a?.camelot) parts.push(`${a.camelot}${a.keySure ? "" : a.keyAlt ? `? (or ${a.keyAlt})` : "?"}`);
   return parts.join(" · ") || "…";
 }
 

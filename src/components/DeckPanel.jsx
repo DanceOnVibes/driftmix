@@ -162,7 +162,9 @@ function Readout({ deck, loaded }) {
       : status === "failed"
         ? "Couldn't read tempo or key from this file."
         : unsure
-          ? "? = not fully sure. Check it by ear."
+          ? key && !key.sure && key.alt
+            ? `? = not fully sure. Key is a close call with ${key.alt.camelot} (${key.alt.name}): check it by ear.`
+            : "? = not fully sure. Check it by ear."
           : "";
 
   return (
