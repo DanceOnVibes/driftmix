@@ -207,3 +207,49 @@ export function detectTempo(signal, sampleRate) {
 
   return { bpm, confidence, firstBeat };
 }
+
+/**
+ * Local grid: the exact tempo and beat position of one stretch of a track
+ * (the part about to be mixed). Produced tracks drift a little; even 0.1 BPM
+ * off adds up to ~20 ms over a 16-bar blend, which you hear as a flam. So
+ * just before a mix we re-measure only what's about to play.
+ *
+ * @param {Float32Array} signal  a mono slice (about 20–60 s is ideal)
+ * @param {number} sampleRate
+ * @param {number} approxBpm  the whole-track tempo; we search ±1.5% around it
+ * @returns {{ bpm: number, beat: number, confidence: number } | null}
+ *   beat: seconds from the start of the slice to a beat (the first one)
+ */
+export function fitLocalGrid(signal, sampleRate, approxBpm) {
+  if (!(approxBpm > 0)) return null;
+  const { env, kick, fps } = onsetEnvelope(signal, sampleRate);
+  const framesPerBeat = (bpm) => (fps * 60) / bpm;
+  if (env.length < framesPerBeat(approxBpm) * 8) return null;
+  const pulse = new Float32Array(env.length);
+  for (let i = 0; i < pulse.length; i++) pulse[i] = kick[i] + 0.5 * env[i];
+
+  let bestBpm = approxBpm;
+  let bestScore = -Infinity;
+  const lo = approxBpm * 0.985;
+  const hi = approxBpm * 1.015;
+  for (let bpm = lo; bpm <= hi + 1e-9; bpm += 0.005) {
+    const g = gridScore(pulse, framesPerBeat(bpm));
+    if (g.score > bestScore) {
+      bestScore = g.score;
+      bestBpm = bpm;
+    }
+  }
+  const period = framesPerBeat(bestBpm);
+  const useKick = kick.some((v) => v > 0);
+  const { phase, score } = gridScore(useKick ? kick : pulse, period);
+  // Confidence: grid hits against the slice's average level (≈1 means no beat).
+  let mean = 0;
+  const line = useKick ? kick : pulse;
+  for (let i = 0; i < line.length; i++) mean += line[i];
+  mean /= line.length || 1;
+  const contrast = mean > 0 ? score / mean : 0;
+  const confidence = Math.max(0, Math.min(1, (contrast - 1.5) / 3));
+  const beatSeconds = 60 / bestBpm;
+  const seconds = (phase * HOP) / sampleRate + ONSET_SHIFT;
+  return { bpm: bestBpm, beat: ((seconds % beatSeconds) + beatSeconds) % beatSeconds, confidence };
+}

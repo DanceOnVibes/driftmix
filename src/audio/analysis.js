@@ -80,3 +80,23 @@ export async function stretchBuffer(buffer, tempo, context) {
   out.forEach((data, c) => result.copyToChannel(data, c));
   return result;
 }
+
+/**
+ * The exact tempo and beat in one stretch of a track (track seconds from
+ * `from` to `to`), measured fresh just before a mix.
+ * @returns {Promise<{ bpm: number, beat: number, confidence: number } | null>}
+ *   beat: track seconds of a beat in that stretch
+ */
+export async function localGrid(buffer, from, to, approxBpm) {
+  const rate = buffer.sampleRate;
+  const a = Math.max(0, Math.floor(from * rate));
+  const b = Math.min(buffer.length, Math.ceil(to * rate));
+  if (b - a < rate * 4) return null;
+  const samples = new Float32Array(b - a);
+  for (let c = 0; c < buffer.numberOfChannels; c++) {
+    const data = buffer.getChannelData(c);
+    for (let i = 0; i < samples.length; i++) samples[i] += data[a + i] / buffer.numberOfChannels;
+  }
+  const r = await run("analyze", { type: "grid", samples, sampleRate: rate, bpm: approxBpm }, [samples.buffer]);
+  return r && { ...r, beat: a / rate + r.beat };
+}

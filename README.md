@@ -24,6 +24,9 @@ Built under DanceOnVibes Limited. Free and open source under the AGPL-3.0.
 - **Match light:** green, amber or red for the two tracks. Tempo: up to 3% apart is green, up to 6% amber (half and double time count). Key on the Camelot wheel: same, one step or A/B swap is green; two steps or a diagonal is amber; anything else red. It suggests a fix: the BPM range to pick from, a ±1 or ±2 semitone shift, or the friendly keys. The playing deck counts as "now".
 - **Transition button:** the next track is time-stretched to the playing tempo with key lock (our own WSOLA stretch, made in a background worker before you press), optionally shifted ±1/±2 semitones to fix the key, started exactly on the playing track's next bar on its own beat, blended equal-power over 8, 16 or 32 bars, with the bass swapped half way. Then the old track stops and the crossfader moves over. Touching a deck or pressing Cancel puts things back.
 - **Auto DJ:** add tracks (read one at a time in the background, then the decoded audio is let go), "Order for a smooth set" (keys flow round the Camelot wheel; first track stays first), Start. Near the end of each track it presses Mix (key fix on) and loads the next track onto the deck that just finished. The whole set is locked to the first track's tempo; tracks more than 6% away are skipped. Touching a deck hands control back.
+- **Tight beats:** analysis also finds the downbeat (bar one, from where chords and bass change). Just before every mix, tempo and beats are re-measured in the exact stretch about to play, for both tracks, and the start points snap to the real beats (produced tracks drift a little; 0.1 BPM off is ~20 ms by the end of a 16-bar blend). Auto DJ starts its mixes on 8-bar phrase lines and blends "?" tracks over 8 bars.
+- **Mid (vocal) swap:** alongside the bass swap, the incoming track's mids (≈400 Hz–3.5 kHz, where vocals sit) are dipped 18 dB until half way, so two voices don't talk over each other; you hear its groove first, as a hint.
+- **Set tempo:** Auto DJ locks the set to the first track's tempo or one you pick (120–150); skipped tracks say exactly why.
 - **Privacy:** tracks are read from the computer with the browser's file reader and decoded in the page. Nothing is uploaded.
 - **Hosting:** Cloudflare builds it (`npm install && npm run build`) and serves the `dist` folder. Branches get a preview link.
 
@@ -52,6 +55,7 @@ Built under DanceOnVibes Limited. Free and open source under the AGPL-3.0.
 | `src/lib/setlist.js` | Set order (flowing keys, tempo lock) and when to mix out |
 | `src/lib/match.js` | Match light rules: tempo and key verdicts, fix suggestions |
 | `src/lib/analyze.js` | Runs both detectors; hides weak answers, marks unsure ones |
+| `src/lib/downbeat.js` | Finds bar one (the downbeat) |
 | `src/lib/fft.js` | Splits sound into frequencies (used by both detectors) |
 | `src/lib/lib.test.js`, `src/lib/analysis.test.js`, `src/lib/match.test.js`, `src/lib/transition.test.js`, `src/lib/setlist.test.js` | Tests (`npm test`) |
 | `src/lib/test-synth.js` | Makes test tracks with known tempo and key, for the tests only |

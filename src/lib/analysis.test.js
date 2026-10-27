@@ -125,3 +125,33 @@ test("judge: weak answers hidden, middling marked unsure, strong marked sure", (
   assert.equal(judge({ confidence: 0.45 }).sure, false);
   assert.equal(judge({ confidence: 0.9 }).sure, true);
 });
+
+test("downbeat: finds bar one even when a track starts mid-bar", async () => {
+  const { findDownbeat } = await import("./downbeat.js");
+  for (const cutBeats of [0, 1, 2, 3]) {
+    const bpm = 128;
+    const t = synthTrack({ bpm, root: 9, mode: "minor", seconds: 40, lead: 0.1 });
+    const cut = Math.round((0.1 + (cutBeats * 60) / bpm - 0.05) * t.sampleRate);
+    const d = downsample(t.samples.subarray(cut), t.sampleRate);
+    const tempo = detectTempo(d.samples, d.sampleRate);
+    const r = findDownbeat(d.samples, d.sampleRate, tempo.bpm, tempo.firstBeat);
+    assert.equal(r.offset, (4 - cutBeats) % 4, `cut ${cutBeats} beats`);
+    assert.equal(r.sure, true);
+  }
+});
+
+test("local grid: re-measures a drifting tempo to ±0.03 BPM and the beat to ±5 ms", async () => {
+  const { fitLocalGrid } = await import("./tempo.js");
+  for (const [bpm, lead, rough] of [[129.71, 0.137, 129.6], [130.9, 0.05, 131], [128, 0.3, 128.4]]) {
+    const t = synthTrack({ bpm, lead, seconds: 40 });
+    const d = downsample(t.samples, t.sampleRate);
+    const from = 7.3;
+    const slice = d.samples.subarray(Math.round(from * d.sampleRate), Math.round((from + 30) * d.sampleRate));
+    const r = fitLocalGrid(slice, d.sampleRate, rough);
+    assert.ok(Math.abs(r.bpm - bpm) < 0.03, `${bpm}: measured ${r.bpm.toFixed(3)}`);
+    const beat = 60 / bpm;
+    let e = Math.abs(r.beat - ((((lead - from) % beat) + beat) % beat));
+    e = Math.min(e, beat - e);
+    assert.ok(e < 0.005, `${bpm}: beat off by ${(e * 1000).toFixed(1)} ms`);
+  }
+});

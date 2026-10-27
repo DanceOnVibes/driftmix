@@ -1,7 +1,7 @@
 // Transition button tests: the plan maths and the time-stretch. Run with: npm test
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { planTransition, blendCurves } from "./transition.js";
+import { planTransition, blendCurves, refinePlan } from "./transition.js";
 import { timeStretch } from "./stretch.js";
 import { synthTrack } from "./test-synth.js";
 import { analyzeTrack } from "./analyze.js";
@@ -95,4 +95,31 @@ test("time-stretch hits the target tempo and keeps the key (130 → 129.6, D min
   const r = analyzeTrack(out, t.sampleRate);
   assert.ok(Math.abs(r.tempo.bpm - 129.6) <= 0.1, `reads ${r.tempo.bpm}`);
   assert.equal(r.key.camelot, "7A");
+});
+
+test("phrase mode: starts on the next 8-bar line, not just the next bar", () => {
+  const p = planTransition({ now: nowDeck(), next: nextDeck(), bars: 16, phraseBars: 8 });
+  const beats = (p.startTrack - 0.1) / (60 / 129.6);
+  assert.ok(near(beats / 32, Math.round(beats / 32), 1e-6), `on a 32-beat line (${beats.toFixed(2)} beats)`);
+});
+
+test("refine: snaps to the real local beats and corrects a small tempo error", () => {
+  const plan = planTransition({ now: nowDeck(), next: nextDeck(), bars: 16 });
+  // The local measurement says: now really 129.71, its beats sit 12 ms later; next really 130.85.
+  const nowLocal = { bpm: 129.71, beat: 0.1 + 0.012 };
+  const nextLocal = { bpm: 130.85, beat: 0.25 - 0.008 };
+  const r = refinePlan(plan, { now: { bpm: 129.6, position: 60, speed: 1 }, next: { bpm: 130.9 }, nowLocal, nextLocal, prepared: plan.stretchTempo });
+  const beatNow = 60 / 129.71;
+  assert.ok(near(((r.startTrack - nowLocal.beat) / beatNow) % 1, 0, 1e-6) || near(((r.startTrack - nowLocal.beat) / beatNow) % 1, 1, 1e-6), "start on a real beat");
+  assert.ok(near(r.speed, 129.71 / 130.85), "speed from the local tempos");
+  assert.ok(near(r.stretchTempo * r.pitchRate, r.speed), "stretch × trim = speed");
+  assert.ok(Math.abs(r.pitchRate - 1) < 0.006, "the trim is tiny");
+  assert.equal(r.refined.speed, true);
+});
+
+test("refine: a big disagreement is not trusted for speed (keeps the plan)", () => {
+  const plan = planTransition({ now: nowDeck(), next: nextDeck(), bars: 16 });
+  const r = refinePlan(plan, { now: { bpm: 129.6, position: 60, speed: 1 }, next: { bpm: 130.9 }, nowLocal: { bpm: 133, beat: 0.1 }, nextLocal: null, prepared: plan.stretchTempo });
+  assert.ok(near(r.speed, plan.speed));
+  assert.equal(r.refined.speed, false);
 });

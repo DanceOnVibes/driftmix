@@ -1,9 +1,9 @@
 /**
  * Auto DJ set planning: put a playlist in an order that flows.
  *
- * The whole set plays at one tempo: the first track's (a tempo lock, like a
- * DJ who keeps the room at 128). Every other track is stretched to it, so a
- * track more than 6% away can't join the set cleanly.
+ * The whole set plays at one tempo (a tempo lock, like a DJ who keeps the
+ * room at 128): the first track's, or one the DJ picks. Every track is
+ * stretched to it, so a track more than 6% away can't join the set cleanly.
  *
  * Order is about keys: each step should be green on the Camelot wheel where
  * possible. Cost of one step (lower is better):
@@ -41,15 +41,16 @@ export function fitsTempo(track, setBpm) {
 }
 
 /**
- * @param {SetTrack[]} tracks  in the current order; the first one starts the set
+ * @param {SetTrack[]} tracks  in the current order; the first one that fits starts the set
+ * @param {number} [chosenBpm]  the set tempo; default: the first track's
  * @returns {{ order: SetTrack[], left: SetTrack[], cost: number, setBpm: number|null }}
  *   order: the set; left: tracks that can't join (tempo too far, or no tempo found)
  */
-export function orderSet(tracks) {
-  if (!tracks.length) return { order: [], left: [], cost: 0, setBpm: null };
-  const first = tracks.find((t) => t.bpm > 0);
-  if (!first) return { order: [], left: [...tracks], cost: 0, setBpm: null };
-  const setBpm = first.bpm;
+export function orderSet(tracks, chosenBpm = null) {
+  if (!tracks.length) return { order: [], left: [], cost: 0, setBpm: chosenBpm };
+  const setBpm = chosenBpm ?? tracks.find((t) => t.bpm > 0)?.bpm ?? null;
+  const first = setBpm ? tracks.find((t) => fitsTempo(t, setBpm)) : null;
+  if (!first) return { order: [], left: [...tracks], cost: 0, setBpm };
   const fits = tracks.filter((t) => t !== first && fitsTempo(t, setBpm));
   const left = tracks.filter((t) => t !== first && !fitsTempo(t, setBpm));
 
@@ -85,4 +86,19 @@ export function mixOutIn({ position, duration, speed, bpm, bars, prep = 6 }) {
   const remainingReal = (duration - position) / speed;
   const blend = (bars * 4 * 60) / (bpm * speed);
   return remainingReal - blend - prep;
+}
+
+/**
+ * Where Auto DJ starts mixing out (track seconds): the last 8-bar phrase line
+ * that still leaves room for the whole blend plus a bar before the end.
+ * Phrase lines are counted from the first downbeat, so the mix starts where
+ * the music itself changes section.
+ * @returns {number|null}  null when the track is too short for a phrase-aligned blend
+ */
+export function mixOutPoint({ firstBeat, bpm, duration, bars, phraseBars = 8, tailBeats = 4 }) {
+  const beat = 60 / bpm;
+  const phrase = phraseBars * 4 * beat;
+  const latest = duration - tailBeats * beat - bars * 4 * beat;
+  if (!(latest >= firstBeat)) return null;
+  return firstBeat + Math.floor((latest - firstBeat) / phrase + 1e-9) * phrase;
 }

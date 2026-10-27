@@ -17,7 +17,11 @@ import {
   setTempo,
   setLength,
   setBars,
+  setTempoChoice,
+  skipReason,
 } from "../audio/autodj.js";
+
+const TEMPOS = [120, 122, 124, 125, 126, 128, 130, 132, 134, 136, 138, 140, 145, 150];
 
 const STEP = { 0: "green", 2: "amber", 3: "amber", 4: "amber", 10: "red" };
 const STEP_WORDS = { green: "flows", amber: "mixable", red: "clash" };
@@ -36,6 +40,7 @@ export function AutoDjPanel() {
   const [dragging, setDragging] = useState(false);
 
   const tracks = autoDj.tracks;
+  const firstBpm = tracks.find((t) => t.status === "ready" && t.tempo)?.tempo.bpm;
   const setBpm = autoDj.setBpm ?? setTempo();
   const ready = tracks.filter((t) => playable(t, setBpm));
   const readingCount = tracks.filter((t) => t.status === "reading").length;
@@ -60,9 +65,9 @@ export function AutoDjPanel() {
       return `${deck.playing ? "Playing" : "Next"} (${deck.id.toUpperCase()})`;
     }
     if (t.status === "reading") return "Reading…";
-    if (t.status === "failed") return "Can't read";
-    if (!t.tempo) return "No tempo";
-    if (!playable(t, setBpm)) return `Too far from ${fmt(setBpm)}`;
+    if (t.status === "failed") return "Can't read the file";
+    if (!t.tempo) return "No steady beat";
+    if (!playable(t, setBpm)) return `Too far: ${Math.round(Math.abs(skipPercent(t, setBpm)) * 10) / 10}%`;
     return "";
   }
 
@@ -105,6 +110,22 @@ export function AutoDjPanel() {
             e.target.value = "";
           }}
         />
+        <label className="tempo-choice">
+          <span>Set tempo</span>
+          <select
+            value={String(autoDj.tempoChoice)}
+            onChange={(e) => setTempoChoice(e.target.value)}
+            disabled={autoDj.on}
+            data-testid="set-tempo"
+          >
+            <option value="first">First track{firstBpm ? ` (${fmt(firstBpm)})` : ""}</option>
+            {TEMPOS.map((n) => (
+              <option key={n} value={String(n)}>
+                {n} BPM
+              </option>
+            ))}
+          </select>
+        </label>
         <button type="button" className="btn btn-ghost" onClick={sortSet} disabled={autoDj.on || ready.length < 3 || readingCount > 0} data-testid="sort">
           Order for a smooth set
         </button>
@@ -170,7 +191,9 @@ export function AutoDjPanel() {
                 <span className="row-bpm">{t.tempo ? fmt(t.tempo.bpm) : "–"}</span>
                 <span className="row-key">{t.key ? t.key.camelot : "–"}</span>
                 <span className="row-time">{t.duration ? formatTime(t.duration) : ""}</span>
-                <span className="row-badge">{badge(t)}</span>
+                <span className="row-badge" title={skipReason(t, setBpm)}>
+                  {badge(t)}
+                </span>
                 <span className="row-tools">
                   <button type="button" aria-label={`Move ${t.name} up`} onClick={() => moveTrack(t.id, -1)} disabled={i === 0 || autoDj.on}>
                     ↑
@@ -194,6 +217,12 @@ export function AutoDjPanel() {
       )}
     </section>
   );
+}
+
+function skipPercent(track, setBpm) {
+  // How far the track is from the set tempo (half/double time counts).
+  const options = [1, 2, 0.5].map((f) => (Math.abs(setBpm - track.tempo.bpm * f) / (track.tempo.bpm * f)) * 100);
+  return Math.min(...options);
 }
 
 function fmt(bpm) {

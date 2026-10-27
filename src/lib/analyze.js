@@ -4,6 +4,7 @@
  */
 import { detectTempo } from "./tempo.js";
 import { detectKey } from "./key.js";
+import { findDownbeat } from "./downbeat.js";
 
 /** Analysis works at about 22 kHz: plenty for beats and notes, and 2× faster. */
 const TARGET_RATE = 22050;
@@ -25,14 +26,21 @@ export function downsample(samples, sampleRate) {
  * @param {Float32Array} mono  the track mixed down to one channel
  * @param {number} sampleRate
  * @returns {{ tempo: object|null, key: object|null, seconds: number }}
- *   tempo: { bpm, firstBeat, confidence, sure }   key: { camelot, name, root, mode, confidence, sure }
+ *   tempo: { bpm, firstBeat (the first downbeat), downbeatSure, confidence, sure }   key: { camelot, name, root, mode, confidence, sure }
  *   null means "couldn't find one" (e.g. no steady beat, or drums only).
  */
 export function analyzeTrack(mono, sampleRate) {
   const started = Date.now();
   const { samples, sampleRate: rate } = downsample(mono, sampleRate);
+  const tempo = detectTempo(samples, rate);
+  if (tempo) {
+    // Move the first beat on to the first "1" of a bar, so bars line up.
+    const down = findDownbeat(samples, rate, tempo.bpm, tempo.firstBeat);
+    tempo.firstBeat += (down.offset * 60) / tempo.bpm;
+    tempo.downbeatSure = down.sure;
+  }
   return {
-    tempo: judge(detectTempo(samples, rate)),
+    tempo: judge(tempo),
     key: judge(detectKey(samples, rate)),
     seconds: (Date.now() - started) / 1000,
   };

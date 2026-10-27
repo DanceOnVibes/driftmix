@@ -11,12 +11,15 @@
  *  2. On the bar: the next track starts exactly on the playing track's next
  *     bar line, on its own beat, bass cut.
  *  3. Blend: equal-power fade (overall loudness stays even). Half way, the
- *     basses swap over half a beat, so two kicks never fight.
+ *     basses swap over half a beat, so two kicks never fight, and so do the
+ *     mids (where vocals live), so two voices don't talk over each other.
+ *     Just before it starts, tempo and beats are re-measured in the parts
+ *     about to play, and the start points snap to the real beats.
  *  4. Done: the old track stops, the crossfader moves to the new deck.
  */
-import { audioContext, decks, crossfader, setCrossfader, BASS_CUT } from "./engine.js";
-import { stretchBuffer } from "./analysis.js";
-import { planTransition, blendCurves } from "../lib/transition.js";
+import { audioContext, decks, crossfader, setCrossfader, BASS_CUT, MID_CUT } from "./engine.js";
+import { stretchBuffer, localGrid } from "./analysis.js";
+import { planTransition, refinePlan, blendCurves } from "../lib/transition.js";
 import { tempoMatch, keyMatch, keyFixes } from "../lib/match.js";
 
 /** What the transition is doing, for the screen. */
@@ -120,7 +123,7 @@ function prepare(next, tempo) {
   return promise;
 }
 
-function settings(now, next, bars, semitones, factor) {
+function settings(now, next, bars, semitones, factor, phraseBars = 1) {
   return planTransition({
     now: {
       bpm: now.analysis.tempo.bpm,
@@ -138,8 +141,12 @@ function settings(now, next, bars, semitones, factor) {
     bars,
     semitones,
     factor,
+    phraseBars,
   });
 }
+
+/** Local grids are only used when the beat in that stretch was clear. */
+const trusted = (grid) => (grid && grid.confidence >= 0.3 ? grid : null);
 
 /** Called by the screen whenever things change: gets the next track ready early. */
 export function warmUp({ bars, useFix }) {
@@ -165,8 +172,11 @@ function clearTimers() {
   timers = [];
 }
 
-/** Press Mix. */
-export async function startTransition({ bars, useFix }) {
+/**
+ * Press Mix. `phraseBars` 8 = wait for the next 8-bar phrase line (Auto DJ);
+ * 1 = the next bar (the button).
+ */
+export async function startTransition({ bars, useFix, phraseBars = 1 }) {
   const [now, next] = nowAndNext();
   const opts = transitionOptions(now, next);
   if (!opts.ok || isActive()) return;
@@ -189,15 +199,46 @@ export async function startTransition({ bars, useFix }) {
     return;
   }
 
-  // Plan from where the playing track is *now* (it kept playing while we prepared).
-  const plan = settings(now, next, bars, semitones, opts.factor);
+  // Re-measure tempo and beats in the stretches about to play, for both
+  // tracks (whole-track numbers can drift a little over a long blend).
+  const nb = now.analysis.tempo;
+  const xb = next.analysis.tempo;
+  const rough = settings(now, next, bars, semitones, opts.factor, phraseBars);
+  let nowLocal = null;
+  let nextLocal = null;
+  try {
+    [nowLocal, nextLocal] = await Promise.all([
+      localGrid(now.buffer, rough.startTrack - (8 * 60) / nb.bpm, rough.startTrack + ((rough.bars * 4 + 36) * 60) / nb.bpm, nb.bpm),
+      localGrid(next.buffer, rough.nextStart - (2 * 60) / xb.bpm, rough.nextStart + ((rough.bars * 4 + 4) * 60) / xb.bpm, xb.bpm),
+    ]);
+  } catch {
+    /* fall back to the whole-track grid */
+  }
+  if (token !== run) return;
+  if (!now.playing) {
+    mix.set({ status: "idle", message: `${N} stopped, so the transition didn't start.` });
+    return;
+  }
+
+  // Plan from where the playing track is *now* (it kept playing meanwhile).
+  const planned = settings(now, next, bars, semitones, opts.factor, phraseBars);
+  const plan = refinePlan(planned, {
+    now: { bpm: nb.bpm, position: now.position, speed: now.speed },
+    next: { bpm: xb.bpm },
+    nowLocal: trusted(nowLocal),
+    nextLocal: trusted(nextLocal),
+    factor: opts.factor,
+    prepared: planned.stretchTempo,
+    semitones,
+  });
   const ctx = audioContext();
   const when = ctx.currentTime + plan.startIn;
   const end = when + plan.blendSeconds;
   now.ensureNodes();
   next.ensureNodes();
 
-  next.setStretch({ buffer: stretched, stretchTempo: plan.stretchTempo, pitchRate: plan.pitchRate, semitones });
+  const heardBpm = now.playingBpm / opts.factor;
+  next.setStretch({ buffer: stretched, stretchTempo: plan.stretchTempo, pitchRate: plan.pitchRate, semitones, heardBpm });
   crossfader.locked = true;
   crossfader.emit();
 
@@ -206,12 +247,17 @@ export async function startTransition({ bars, useFix }) {
   const nextFader = next.faderNode.gain;
   const nowBass = now.bassNode.gain;
   const nextBass = next.bassNode.gain;
+  const nowMid = now.midNode.gain;
+  const nextMid = next.midNode.gain;
   const startLevel = Math.max(0.0001, nowFader.value);
-  for (const p of [nowFader, nextFader, nowBass, nextBass]) p.cancelScheduledValues(t);
+  for (const p of [nowFader, nextFader, nowBass, nextBass, nowMid, nextMid]) p.cancelScheduledValues(t);
   nowFader.setValueAtTime(startLevel, t);
   nextFader.setValueAtTime(0, t);
   nowBass.setValueAtTime(0, t);
   nextBass.setValueAtTime(BASS_CUT, t);
+  // Mid (vocal) swap: the incoming voice waits until half way.
+  nowMid.setValueAtTime(0, t);
+  nextMid.setValueAtTime(MID_CUT, t);
 
   const curves = blendCurves(512, startLevel);
   nowFader.setValueCurveAtTime(curves.out, when, plan.blendSeconds);
@@ -221,13 +267,17 @@ export async function startTransition({ bars, useFix }) {
   nextBass.linearRampToValueAtTime(0, swap + plan.swapLength);
   nowBass.setValueAtTime(0, swap);
   nowBass.linearRampToValueAtTime(BASS_CUT, swap + plan.swapLength);
+  nextMid.setValueAtTime(MID_CUT, swap);
+  nextMid.linearRampToValueAtTime(0, swap + plan.swapLength);
+  nowMid.setValueAtTime(0, swap);
+  nowMid.linearRampToValueAtTime(MID_CUT, swap + plan.swapLength);
 
   next.startAt(when, plan.nextStart);
-  current = { now, next, plan, token };
+  current = { now, next, plan: { ...plan, nextBpm: heardBpm }, token };
 
   const shift = semitones ? `, key shifted ${semitones > 0 ? "+" : ""}${semitones} semitone${Math.abs(semitones) > 1 ? "s" : ""}` : "";
-  const base = { from: now.id, to: next.id, when, end, bars: plan.bars, swapAt: plan.swapAt, blendSeconds: plan.blendSeconds, nextBpm: plan.nextBpm, semitones };
-  mix.set({ ...base, status: "waiting", message: `${X} comes in on the next bar…` });
+  const base = { from: now.id, to: next.id, when, end, bars: plan.bars, swapAt: plan.swapAt, blendSeconds: plan.blendSeconds, nextBpm: heardBpm, semitones, refined: plan.refined };
+  mix.set({ ...base, status: "waiting", message: `${X} comes in on the next ${phraseBars > 1 ? "phrase" : "bar"}…` });
   timers.push(
     setTimeout(() => token === run && mix.set({ ...base, status: "blending", message: `Blending ${N} → ${X}${shift}` }), Math.max(0, (when - ctx.currentTime) * 1000)),
   );
@@ -239,11 +289,12 @@ function finish() {
   clearTimers();
   current = null;
   now.pause();
-  now.resetBass();
-  next.resetBass();
+  now.resetEq();
+  next.resetEq();
   crossfader.locked = false;
   setCrossfader(next.id === "b" ? 1 : -1);
-  const bpm = Number.isInteger(plan.nextBpm) ? plan.nextBpm : plan.nextBpm.toFixed(1);
+  const r = Math.round(plan.nextBpm * 10) / 10;
+  const bpm = Number.isInteger(r) ? r : r.toFixed(1);
   mix.set({ status: "done", from: now.id, to: next.id, message: `Done. ${next.id.toUpperCase()} is playing at ${bpm} BPM.` });
 }
 
@@ -259,8 +310,8 @@ export function cancelTransition(reason = "Transition stopped.") {
     next.offset = plan.nextStart;
     next.emit();
   }
-  decks.a.resetBass();
-  decks.b.resetBass();
+  decks.a.resetEq();
+  decks.b.resetEq();
   crossfader.locked = false;
   setCrossfader(crossfader.position);
   mix.set({ status: "idle", message: reason });

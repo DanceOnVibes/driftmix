@@ -1,7 +1,7 @@
 // Auto DJ set planning tests. Run with: npm test
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { orderSet, stepCost, fitsTempo, mixOutIn } from "./setlist.js";
+import { orderSet, stepCost, fitsTempo, mixOutIn, mixOutPoint } from "./setlist.js";
 
 const t = (id, bpm, camelot) => ({ id, bpm, camelot });
 
@@ -57,4 +57,21 @@ test("mix-out timing: starts mixing a blend plus prep time before the end", () =
 test("empty and no-tempo playlists don't break", () => {
   assert.deepEqual(orderSet([]).order, []);
   assert.equal(orderSet([t("a", null, "8A")]).left.length, 1);
+});
+
+test("a chosen set tempo: 128 keeps 124–135 tracks, the 140 opener can't start", () => {
+  const { order, left, setBpm } = orderSet([t("open", 140, "4A"), t("a", 130, "8A"), t("b", 128, "9A"), t("c", 124, "8A")], 128);
+  assert.equal(setBpm, 128);
+  assert.equal(order[0].id, "a", "first track that fits starts");
+  assert.deepEqual(left.map((o) => o.id), ["open"]);
+});
+
+test("mix-out point: last 8-bar phrase line that leaves room for the blend", () => {
+  const beat = 60 / 128;
+  const p = mixOutPoint({ firstBeat: 0.2, bpm: 128, duration: 240, bars: 16 });
+  const beats = (p - 0.2) / beat;
+  assert.ok(Math.abs(beats / 32 - Math.round(beats / 32)) < 1e-9, "on a phrase line");
+  assert.ok(p + 64 * beat <= 240 - 4 * beat, "blend fits before the end");
+  assert.ok(p + 32 * beat + 64 * beat > 240 - 4 * beat, "and it's the last such line");
+  assert.equal(mixOutPoint({ firstBeat: 0.2, bpm: 128, duration: 20, bars: 16 }), null, "too short");
 });

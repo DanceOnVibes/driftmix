@@ -51,6 +51,9 @@ main { flex: 1; }
 .autodj-head p { margin: 4px 0 0; font-size: 0.85rem; }
 .autodj-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .autodj-tools [data-testid="autodj-toggle"] { margin-left: auto; }
+.tempo-choice { display: inline-flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--muted); }
+.tempo-choice select { background: #000; color: var(--gold-bright); border: 1px solid rgba(212, 166, 74, 0.5); border-radius: 999px; padding: 8px 12px; font: 600 0.85rem var(--sans); }
+.tempo-choice select:disabled { opacity: 0.5; }
 .btn-silver { background: var(--silver); color: #120d04; }
 .autodj-status { margin: 0; font-size: 0.9rem; color: var(--text); }
 .autodj-note { margin: 0; font-size: 0.85rem; color: var(--gold-bright); }
