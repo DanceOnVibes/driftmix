@@ -74,6 +74,7 @@ export function AutoDjPanel() {
   return (
     <section
       className={`autodj${dragging ? " autodj-drop" : ""}`}
+      id="autodj"
       aria-label="Auto DJ"
       data-testid="autodj"
       onDragOver={(e) => {
