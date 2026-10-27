@@ -66,8 +66,8 @@ export class Deck {
     this.bassNode = null;
     this.faderNode = null;
     this.clearStretch();
-    /** Called when the DJ presses something on this deck (the transition listens). */
-    this.onUserAction = null;
+    /** Called when the DJ presses something on this deck (the transition and Auto DJ listen). */
+    this.touchHandlers = new Set();
   }
 
   /** Back to the original track: normal tempo, normal key. */
@@ -112,8 +112,17 @@ export class Deck {
     return ctx;
   }
 
-  /** Read a file from the computer and get it ready to play. */
-  async load(file) {
+  /** The DJ pressed something on this deck. */
+  touched() {
+    for (const handler of this.touchHandlers) handler(this);
+  }
+
+  /**
+   * Read a file from the computer and get it ready to play.
+   * Options (used by Auto DJ): `known` = tempo and key already read, so they
+   * aren't read again; `byApp` = DriftMix is loading it, not the DJ.
+   */
+  async load(file, { known = null, byApp = false } = {}) {
     const ctx = this.ensureNodes();
     // If another track is dropped before this one finishes reading, the
     // newest one wins.
@@ -121,7 +130,7 @@ export class Deck {
     const bytes = await file.arrayBuffer();
     const buffer = await ctx.decodeAudioData(bytes);
     if (ticket !== this.loadTicket) return;
-    this.onUserAction?.(this);
+    if (!byApp) this.touched();
     this.stop();
     const channels = [];
     for (let c = 0; c < buffer.numberOfChannels; c++) channels.push(buffer.getChannelData(c));
@@ -131,6 +140,11 @@ export class Deck {
     this.peaks = computePeaks(channels, WAVEFORM_BARS);
     this.offset = 0;
     this.cue = 0;
+    if (known) {
+      this.analysis = { status: "done", tempo: known.tempo, key: known.key };
+      this.emit();
+      return;
+    }
     this.analysis = { status: "working", tempo: null, key: null };
     this.emit();
     // Tempo and key are read in the background; the track can play meanwhile.
@@ -233,7 +247,7 @@ export class Deck {
   }
 
   toggle() {
-    this.onUserAction?.(this);
+    this.touched();
     if (this.playing) this.pause();
     else this.play();
   }
@@ -241,7 +255,7 @@ export class Deck {
   /** Cue button, CDJ style (see pressCue in lib/mixer.js). */
   pressCue() {
     if (!this.buffer) return;
-    this.onUserAction?.(this);
+    this.touched();
     const next = pressCue({ playing: this.playing, position: this.position, cue: this.cue });
     this.stop();
     this.offset = next.position;
@@ -252,7 +266,7 @@ export class Deck {
   /** Jump to a point in the track (0..1 of its length). Keeps playing if it was. */
   seek(fraction) {
     if (!this.buffer) return;
-    this.onUserAction?.(this);
+    this.touched();
     const wasPlaying = this.playing;
     this.stop();
     this.offset = clamp(fraction, 0, 1) * this.duration;

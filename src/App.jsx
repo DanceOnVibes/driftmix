@@ -2,6 +2,7 @@ import { useEffect, useReducer } from "react";
 import { DeckPanel } from "./components/DeckPanel.jsx";
 import { MatchPanel } from "./components/MatchPanel.jsx";
 import { TransitionPanel } from "./components/TransitionPanel.jsx";
+import { AutoDjPanel } from "./components/AutoDjPanel.jsx";
 import { decks, crossfader, setCrossfader } from "./audio/engine.js";
 
 const SITE = "https://thedrift3r.com";
@@ -22,7 +23,7 @@ export function App() {
             by The Drift3r
           </a>
         </div>
-        <p className="status">Version 1 in progress: decks, BPM, key, match light and the transition button. Auto DJ comes next.</p>
+        <p className="status">Version 1: two decks, BPM and key, match light, one-press transitions and Auto DJ.</p>
       </header>
 
       <main>
@@ -55,6 +56,8 @@ export function App() {
             ? "The transition is doing the fade. The crossfader is yours again when it ends."
             : "Double-click the crossfader to centre it. Mixing works best on a laptop."}
         </p>
+
+        <AutoDjPanel />
       </main>
 
       <footer className="foot">

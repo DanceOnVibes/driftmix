@@ -268,5 +268,5 @@ export function cancelTransition(reason = "Transition stopped.") {
 
 // Touching a deck (play, pause, cue, seek, load) during a transition stops it.
 for (const deck of Object.values(decks)) {
-  deck.onUserAction = () => cancelTransition("Transition stopped: a deck was touched.");
+  deck.touchHandlers.add(() => cancelTransition("Transition stopped: a deck was touched."));
 }
