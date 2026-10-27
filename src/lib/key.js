@@ -50,22 +50,7 @@ export function chromagram(signal, sampleRate) {
       if (start + FFT_SIZE > signal.length) break;
       continue;
     }
-    frame.fill(0);
-    const floor = loudest * 0.03;
-    for (let k = lo; k <= hi; k++) {
-      const m = mag[k];
-      if (m < floor || m <= mag[k - 1] || m < mag[k + 1]) continue;
-      // Find the exact frequency between bins (parabolic peak).
-      const a = mag[k - 1];
-      const c = mag[k + 1];
-      const shift = (0.5 * (a - c)) / (a - 2 * m + c || 1);
-      const hz = (k + shift) * binHz;
-      const midi = 69 + 12 * Math.log2(hz / 440);
-      const note = Math.round(midi);
-      const off = Math.abs(midi - note); // 0 = in tune, 0.5 = between notes
-      const fit = Math.cos((Math.PI / 2) * (off / 0.5)) ** 2;
-      frame[((note % 12) + 12) % 12] += m * fit;
-    }
+    spectrumNotes(mag, binHz, lo, hi, loudest, frame);
     let top = 0;
     for (let i = 0; i < 12; i++) if (frame[i] > top) top = frame[i];
     if (top > 0) for (let i = 0; i < 12; i++) total[i] += frame[i] / top;
@@ -75,6 +60,31 @@ export function chromagram(signal, sampleRate) {
   for (let i = 0; i < 12; i++) if (total[i] > top) top = total[i];
   if (top > 0) for (let i = 0; i < 12; i++) total[i] /= top;
   return total;
+}
+
+/**
+ * The notes in one spectrum, folded into 12 boxes (C … B). Only clear peaks
+ * count (louder than 3% of the loudest), each weighted by how in tune it is.
+ * Also used by the downbeat finder.
+ */
+export function spectrumNotes(mag, binHz, lo, hi, loudest, frame) {
+  frame.fill(0);
+  const floor = loudest * 0.03;
+  for (let k = lo; k <= hi; k++) {
+    const m = mag[k];
+    if (m < floor || m <= mag[k - 1] || m < mag[k + 1]) continue;
+    // Find the exact frequency between bins (parabolic peak).
+    const a = mag[k - 1];
+    const c = mag[k + 1];
+    const shift = (0.5 * (a - c)) / (a - 2 * m + c || 1);
+    const hz = (k + shift) * binHz;
+    const midi = 69 + 12 * Math.log2(hz / 440);
+    const note = Math.round(midi);
+    const off = Math.abs(midi - note); // 0 = in tune, 0.5 = between notes
+    const fit = Math.cos((Math.PI / 2) * (off / 0.5)) ** 2;
+    frame[((note % 12) + 12) % 12] += m * fit;
+  }
+  return frame;
 }
 
 function correlation(x, y) {

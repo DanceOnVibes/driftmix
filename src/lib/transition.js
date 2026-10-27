@@ -19,16 +19,19 @@ export const BAR_CHOICES = [8, 16, 32];
  * @param {number} [p.semitones]   key shift for the next track (−2…+2)
  * @param {number} [p.factor]      1, or 2 / 0.5 for double / half time (from the match light)
  * @param {number} [p.lead]        least real seconds before the blend starts (time to schedule)
+ * @param {number} [p.phraseBars]  start on a line every this many bars (1 = next bar, 8 = next 8-bar phrase)
  */
-export function planTransition({ now, next, bars, semitones = 0, factor = 1, lead = 0.3 }) {
+export function planTransition({ now, next, bars, semitones = 0, factor = 1, lead = 0.3, phraseBars = 1 }) {
   const nowBpm = now.bpm * now.speed; // what the audience hears now
   const nowBeatTrack = 60 / now.bpm; // one beat, in the now deck's track seconds
   const realBeat = 60 / nowBpm;
 
-  // 1. Start on the next bar (every 4 beats from the first beat) far enough ahead.
+  // 1. Start on the next bar (every 4 beats from the first downbeat), or the
+  //    next phrase line, far enough ahead.
   const earliest = now.position + lead * now.speed;
   const beatsIn = (earliest - now.firstBeat) / nowBeatTrack;
-  const barBeat = Math.max(0, Math.ceil(beatsIn / 4 - 1e-9) * 4);
+  const step = 4 * phraseBars;
+  const barBeat = Math.max(0, Math.ceil(beatsIn / step - 1e-9) * step);
   const startTrack = now.firstBeat + barBeat * nowBeatTrack;
   const startIn = (startTrack - now.position) / now.speed;
 
@@ -68,6 +71,60 @@ export function planTransition({ now, next, bars, semitones = 0, factor = 1, lea
     nextBpm: nowBpm / factor,
     nextLongEnough: nextLeftReal >= blendSeconds,
   };
+}
+
+/**
+ * Fine-tune a plan with tempo and beats measured fresh in the stretch about
+ * to play (see fitLocalGrid). Start points snap to the nearest real beat; the
+ * speed uses the local tempos. The stretched copy was made in advance, so a
+ * small speed correction goes on the playback rate (a "trim": at most 0.6%,
+ * about a tenth of a semitone, which nobody hears). Bigger than that and we
+ * keep the planned speed.
+ *
+ * @param {object} plan  from planTransition
+ * @param {object} o
+ * @param {{ bpm: number, position: number, speed: number }} o.now  whole-track bpm
+ * @param {{ bpm: number }} o.next
+ * @param {{ bpm: number, beat: number } | null} o.nowLocal   local grid, track seconds
+ * @param {{ bpm: number, beat: number } | null} o.nextLocal
+ * @param {number} o.prepared  the stretch tempo of the copy that was made
+ */
+export function refinePlan(plan, { now, next, nowLocal, nextLocal, factor = 1, prepared, semitones = 0, lead = 0.1, maxTrim = 0.006 }) {
+  const out = { ...plan, refined: { now: Boolean(nowLocal), next: Boolean(nextLocal), speed: false } };
+  const nowBpm = nowLocal ? nowLocal.bpm : now.bpm;
+  const nextBpm = nextLocal ? nextLocal.bpm : next.bpm;
+  const snap = (t, local) => {
+    const b = 60 / local.bpm;
+    return local.beat + Math.round((t - local.beat) / b) * b;
+  };
+  if (nowLocal) out.startTrack = snap(plan.startTrack, nowLocal);
+  if (nextLocal) out.nextStart = Math.max(0, snap(plan.nextStart, nextLocal));
+
+  const semiRate = 2 ** (semitones / 12);
+  let speed = (nowBpm * now.speed) / (nextBpm * factor);
+  let pitchRate = speed / prepared;
+  if (Math.abs(pitchRate / semiRate - 1) > maxTrim) {
+    speed = plan.speed;
+    pitchRate = plan.speed / prepared;
+  } else {
+    out.refined.speed = true;
+  }
+  out.speed = speed;
+  out.pitchRate = pitchRate;
+  out.stretchTempo = prepared;
+
+  const realBeat = 60 / (nowBpm * now.speed);
+  out.startIn = (out.startTrack - now.position) / now.speed;
+  if (out.startIn < lead) {
+    // Snapping pulled the start too close: go one bar later.
+    out.startTrack += (4 * 60) / nowBpm;
+    out.startIn = (out.startTrack - now.position) / now.speed;
+  }
+  out.blendSeconds = plan.bars * 4 * realBeat;
+  out.swapAt = out.blendSeconds / 2;
+  out.swapLength = realBeat / 2;
+  out.nextBpm = (nowBpm * now.speed) / factor;
+  return out;
 }
 
 /**

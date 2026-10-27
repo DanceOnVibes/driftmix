@@ -3,9 +3,10 @@
  * Web Audio. Tracks are read from the DJ's computer and stay there.
  *
  * Signal path for each deck:
- *   track → deck volume → bass EQ → crossfader gain → master → speakers
+ *   track → deck volume → bass EQ → mid EQ → crossfader gain → master → speakers
  *
- * The bass EQ is a low shelf the transition button uses for the bass swap.
+ * The bass and mid EQs are what the transition button uses for the bass swap
+ * and the vocal (mid) swap.
  *
  * Browsers only allow sound to start after the person clicks something, so the
  * audio context is created (or woken up) on the first click.
@@ -25,6 +26,14 @@ export const WAVEFORM_BARS = 1200;
 /** Bass EQ: the low shelf sits at 180 Hz; "cut" is −30 dB. */
 export const BASS_HZ = 180;
 export const BASS_CUT = -30;
+/**
+ * Mid EQ: a wide dip around 1.2 kHz (roughly 400 Hz – 3.5 kHz), where vocals
+ * live. "Cut" is −18 dB: the incoming track's voice stays out of the way
+ * until the swap, while its hats and groove come through as a hint.
+ */
+export const MID_HZ = 1200;
+export const MID_Q = 0.6;
+export const MID_CUT = -18;
 
 let context = null;
 let master = null;
@@ -64,10 +73,11 @@ export class Deck {
     this.fader = 1;
     this.volumeNode = null;
     this.bassNode = null;
+    this.midNode = null;
     this.faderNode = null;
     this.clearStretch();
-    /** Called when the DJ presses something on this deck (the transition listens). */
-    this.onUserAction = null;
+    /** Called when the DJ presses something on this deck (the transition and Auto DJ listen). */
+    this.touchHandlers = new Set();
   }
 
   /** Back to the original track: normal tempo, normal key. */
@@ -76,6 +86,7 @@ export class Deck {
     this.stretchTempo = 1; // track seconds per stretched-copy second
     this.pitchRate = 1; // playback rate (the key shift)
     this.semitones = 0;
+    this.heardBpm = null; // the tempo it's been matched to, for display
   }
 
   /** Track seconds per real second (1 = original tempo). */
@@ -86,7 +97,11 @@ export class Deck {
   /** The tempo and key the audience hears right now. */
   get playingBpm() {
     const t = this.analysis.tempo;
-    return t ? t.bpm * this.speed : null;
+    if (!t) return null;
+    // After a mix the deck plays at the tempo it was matched to. (The exact
+    // speed also carries a tiny correction from the fresh beat measurement,
+    // which would otherwise show as 132.98 instead of 133.)
+    return this.heardBpm ?? t.bpm * this.speed;
   }
 
   get playingCamelot() {
@@ -102,9 +117,15 @@ export class Deck {
       this.bassNode.type = "lowshelf";
       this.bassNode.frequency.value = BASS_HZ;
       this.bassNode.gain.value = 0;
+      this.midNode = ctx.createBiquadFilter();
+      this.midNode.type = "peaking";
+      this.midNode.frequency.value = MID_HZ;
+      this.midNode.Q.value = MID_Q;
+      this.midNode.gain.value = 0;
       this.faderNode = ctx.createGain();
       this.volumeNode.connect(this.bassNode);
-      this.bassNode.connect(this.faderNode);
+      this.bassNode.connect(this.midNode);
+      this.midNode.connect(this.faderNode);
       this.faderNode.connect(master);
       this.volumeNode.gain.value = this.volume;
       this.faderNode.gain.value = this.fader;
@@ -112,8 +133,17 @@ export class Deck {
     return ctx;
   }
 
-  /** Read a file from the computer and get it ready to play. */
-  async load(file) {
+  /** The DJ pressed something on this deck. */
+  touched() {
+    for (const handler of this.touchHandlers) handler(this);
+  }
+
+  /**
+   * Read a file from the computer and get it ready to play.
+   * Options (used by Auto DJ): `known` = tempo and key already read, so they
+   * aren't read again; `byApp` = DriftMix is loading it, not the DJ.
+   */
+  async load(file, { known = null, byApp = false } = {}) {
     const ctx = this.ensureNodes();
     // If another track is dropped before this one finishes reading, the
     // newest one wins.
@@ -121,7 +151,7 @@ export class Deck {
     const bytes = await file.arrayBuffer();
     const buffer = await ctx.decodeAudioData(bytes);
     if (ticket !== this.loadTicket) return;
-    this.onUserAction?.(this);
+    if (!byApp) this.touched();
     this.stop();
     const channels = [];
     for (let c = 0; c < buffer.numberOfChannels; c++) channels.push(buffer.getChannelData(c));
@@ -131,6 +161,11 @@ export class Deck {
     this.peaks = computePeaks(channels, WAVEFORM_BARS);
     this.offset = 0;
     this.cue = 0;
+    if (known) {
+      this.analysis = { status: "done", tempo: known.tempo, key: known.key };
+      this.emit();
+      return;
+    }
     this.analysis = { status: "working", tempo: null, key: null };
     this.emit();
     // Tempo and key are read in the background; the track can play meanwhile.
@@ -153,12 +188,13 @@ export class Deck {
    * Play from now on a stretched / shifted copy (the transition sets this
    * while the deck is stopped).
    */
-  setStretch({ buffer, stretchTempo, pitchRate, semitones }) {
+  setStretch({ buffer, stretchTempo, pitchRate, semitones, heardBpm = null }) {
     this.stop();
     this.stretched = buffer;
     this.stretchTempo = stretchTempo;
     this.pitchRate = pitchRate;
     this.semitones = semitones;
+    this.heardBpm = heardBpm;
     this.emit();
   }
 
@@ -233,7 +269,7 @@ export class Deck {
   }
 
   toggle() {
-    this.onUserAction?.(this);
+    this.touched();
     if (this.playing) this.pause();
     else this.play();
   }
@@ -241,7 +277,7 @@ export class Deck {
   /** Cue button, CDJ style (see pressCue in lib/mixer.js). */
   pressCue() {
     if (!this.buffer) return;
-    this.onUserAction?.(this);
+    this.touched();
     const next = pressCue({ playing: this.playing, position: this.position, cue: this.cue });
     this.stop();
     this.offset = next.position;
@@ -252,7 +288,7 @@ export class Deck {
   /** Jump to a point in the track (0..1 of its length). Keeps playing if it was. */
   seek(fraction) {
     if (!this.buffer) return;
-    this.onUserAction?.(this);
+    this.touched();
     const wasPlaying = this.playing;
     this.stop();
     this.offset = clamp(fraction, 0, 1) * this.duration;
@@ -277,12 +313,13 @@ export class Deck {
     }
   }
 
-  /** Bass EQ back to flat, straight away. */
-  resetBass() {
-    if (!this.bassNode) return;
-    const g = this.bassNode.gain;
-    g.cancelScheduledValues(context.currentTime);
-    g.setValueAtTime(0, context.currentTime);
+  /** Bass and mid EQ back to flat, straight away. */
+  resetEq() {
+    for (const node of [this.bassNode, this.midNode]) {
+      if (!node) continue;
+      node.gain.cancelScheduledValues(context.currentTime);
+      node.gain.setValueAtTime(0, context.currentTime);
+    }
   }
 
   subscribe(listener) {
