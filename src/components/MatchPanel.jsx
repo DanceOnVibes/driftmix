@@ -1,5 +1,6 @@
 import { useEffect, useReducer } from "react";
 import { assessMatch } from "../lib/match.js";
+import { heard, nowAndNext } from "../audio/transition.js";
 
 const WORDS = { green: "Green", amber: "Amber", red: "Red" };
 
@@ -13,18 +14,21 @@ function useDeckChanges(deck) {
  * The match light: green, amber or red for the two loaded tracks, with the
  * tempo and key verdicts and what to do about them. The playing deck is "now";
  * the other is "next". If neither (or both) is playing, A counts as now.
+ * (Props a and b are kept so the panel redraws when either deck changes.)
  */
 export function MatchPanel({ a, b }) {
   useDeckChanges(a);
   useDeckChanges(b);
-  const [now, next] = b.playing && !a.playing ? [b, a] : [a, b];
-  const m = assessMatch(now, next);
+  const [now, next] = nowAndNext();
+  // The now deck as the audience hears it (after any stretch or key shift).
+  const nowHeard = heard(now);
+  const m = assessMatch({ id: now.id, analysis: nowHeard }, next);
   const N = now.id.toUpperCase();
   const X = next.id.toUpperCase();
   const tempoText = m.tempo
-    ? `${fmt(now.analysis.tempo.bpm)} → ${fmt(next.analysis.tempo.bpm)} · ${m.tempo.label}`
+    ? `${fmt(nowHeard.tempo.bpm)} → ${fmt(next.analysis.tempo.bpm)} · ${m.tempo.label}`
     : "–";
-  const keyText = m.key ? `${now.analysis.key.camelot} → ${next.analysis.key.camelot} · ${m.key.label}` : "–";
+  const keyText = m.key ? `${nowHeard.key.camelot} → ${next.analysis.key.camelot} · ${m.key.label}` : "–";
 
   return (
     <section className={`match match-${m.level}`} aria-label="Match light" data-testid="match" data-level={m.level}>
@@ -79,5 +83,6 @@ export function MatchPanel({ a, b }) {
 }
 
 function fmt(bpm) {
-  return Number.isInteger(bpm) ? String(bpm) : bpm.toFixed(1);
+  const r = Math.round(bpm * 10) / 10;
+  return Number.isInteger(r) ? String(r) : r.toFixed(1);
 }

@@ -1,15 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect, useReducer } from "react";
 import { DeckPanel } from "./components/DeckPanel.jsx";
 import { MatchPanel } from "./components/MatchPanel.jsx";
-import { decks, setCrossfader } from "./audio/engine.js";
+import { TransitionPanel } from "./components/TransitionPanel.jsx";
+import { decks, crossfader, setCrossfader } from "./audio/engine.js";
 
 const SITE = "https://thedrift3r.com";
 const SOURCE = "https://github.com/DanceOnVibes/driftmix";
 
 export function App() {
-  const [fader, setFader] = useState(0);
-
-  useEffect(() => setCrossfader(fader), [fader]);
+  // The crossfader lives in the engine, so the transition can move it too.
+  const [, refresh] = useReducer((n) => n + 1, 0);
+  useEffect(() => crossfader.subscribe(refresh), []);
+  useEffect(() => setCrossfader(0), []);
 
   return (
     <div className="app">
@@ -20,7 +22,7 @@ export function App() {
             by The Drift3r
           </a>
         </div>
-        <p className="status">Version 1 in progress: decks, playback, BPM, key and the match light. The transition button comes next.</p>
+        <p className="status">Version 1 in progress: decks, BPM, key, match light and the transition button. Auto DJ comes next.</p>
       </header>
 
       <main>
@@ -30,6 +32,7 @@ export function App() {
         </div>
 
         <MatchPanel a={decks.a} b={decks.b} />
+        <TransitionPanel />
 
         <section className="mixer" aria-label="Crossfader">
           <span className="mixer-end">A</span>
@@ -38,15 +41,20 @@ export function App() {
             min="-1"
             max="1"
             step="0.01"
-            value={fader}
-            onChange={(e) => setFader(Number(e.target.value))}
-            onDoubleClick={() => setFader(0)}
+            value={crossfader.position}
+            disabled={crossfader.locked}
+            onChange={(e) => setCrossfader(Number(e.target.value))}
+            onDoubleClick={() => setCrossfader(0)}
             aria-label="Crossfader: left is deck A, right is deck B"
             data-testid="crossfader"
           />
           <span className="mixer-end">B</span>
         </section>
-        <p className="hint">Double-click the crossfader to centre it. Mixing works best on a laptop.</p>
+        <p className="hint">
+          {crossfader.locked
+            ? "The transition is doing the fade. The crossfader is yours again when it ends."
+            : "Double-click the crossfader to centre it. Mixing works best on a laptop."}
+        </p>
       </main>
 
       <footer className="foot">

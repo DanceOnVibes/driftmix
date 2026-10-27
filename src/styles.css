@@ -44,6 +44,24 @@ main { flex: 1; }
 .deck-time { margin: 0; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
 .deck-error { margin: 0; color: var(--danger); font-size: 0.9rem; }
 
+/* Transition button */
+.transition { margin: 14px auto 0; max-width: 720px; padding: 14px 18px; background: var(--bg-raised); border: 1px solid var(--line); border-radius: 14px; display: flex; flex-direction: column; gap: 10px; }
+.transition-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.bars { display: inline-flex; border: 1px solid rgba(212, 166, 74, 0.5); border-radius: 999px; overflow: hidden; }
+.bar-choice { appearance: none; border: 0; background: transparent; color: var(--gold); font: 600 0.85rem var(--sans); padding: 8px 14px; cursor: pointer; }
+.bar-choice + .bar-choice { border-left: 1px solid rgba(212, 166, 74, 0.35); }
+.bar-on { background: rgba(212, 166, 74, 0.18); color: var(--gold-bright); }
+.bar-choice:disabled { opacity: 0.5; cursor: not-allowed; }
+.mix-btn { padding: 12px 26px; font-size: 1rem; }
+.fix { display: flex; align-items: flex-start; gap: 8px; font-size: 0.9rem; color: var(--text); cursor: pointer; }
+.fix input { accent-color: var(--gold); margin-top: 3px; }
+.progress { position: relative; height: 8px; background: #000; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+.progress span { position: absolute; inset: 0 auto 0 0; background: linear-gradient(90deg, var(--gold), var(--gold-bright)); }
+.progress i { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--silver); opacity: 0.7; }
+.transition-status { margin: 0; color: var(--text); font-size: 0.9rem; }
+.transition-last { margin: 0; color: var(--muted); font-size: 0.8rem; }
+.mixer input:disabled { opacity: 0.5; }
+
 /* Match light */
 .match { margin: 20px auto 0; max-width: 720px; padding: 14px 18px; background: var(--bg-raised); border: 1px solid var(--line); border-radius: 14px; display: flex; flex-direction: column; gap: 10px; --light: var(--muted); }
 .match-green { --light: #3ecf8e; }
