@@ -140,6 +140,7 @@ function Readout({ deck, loaded }) {
   let bpmText = "–";
   let keyText = "–";
   let keySub = "";
+  let bpmSub = "";
   if (loaded && status === "working") {
     bpmText = "…";
     keyText = "…";
@@ -147,9 +148,12 @@ function Readout({ deck, loaded }) {
     bpmText = "Error";
     keyText = "Error";
   } else if (loaded && status === "done") {
-    bpmText = tempo ? `${Number.isInteger(tempo.bpm) ? tempo.bpm : tempo.bpm.toFixed(1)}${tempo.sure ? "" : "?"}` : "Not found";
+    bpmText = tempo ? `${fmt(tempo.bpm)}${tempo.sure ? "" : "?"}` : "Not found";
     keyText = key ? `${key.camelot}${key.sure ? "" : "?"}` : "Not found";
     keySub = key ? key.name : "";
+    // After a transition the deck may play at another tempo / key.
+    if (tempo && Math.abs(deck.speed - 1) > 1e-6) bpmSub = `playing at ${fmt(deck.playingBpm)}`;
+    if (key && deck.semitones) keySub = `${key.name} · shifted to ${deck.playingCamelot}`;
   }
   const unsure = status === "done" && ((tempo && !tempo.sure) || (key && !key.sure));
   const note =
@@ -169,6 +173,7 @@ function Readout({ deck, loaded }) {
           <span className="stat-value" data-testid={`bpm-${id}`}>
             {bpmText}
           </span>
+          {bpmSub && <span className="stat-sub">{bpmSub}</span>}
         </p>
         <p className="stat">
           <span className="stat-label">Key</span>
@@ -183,4 +188,9 @@ function Readout({ deck, loaded }) {
       </p>
     </div>
   );
+}
+
+function fmt(bpm) {
+  const r = Math.round(bpm * 10) / 10;
+  return Number.isInteger(r) ? String(r) : r.toFixed(1);
 }

@@ -1,14 +1,23 @@
 /**
- * Background worker: reads a track's tempo and key without freezing the page.
- * It receives the track as one channel of samples and sends back the result.
+ * Background worker: the heavy sums, done without freezing the page.
+ *  - "analyze": tempo and key of a track (one channel of samples in).
+ *  - "stretch": a time-stretched copy of a track (all channels in and out).
  * Everything happens on the DJ's own computer.
  */
 import { analyzeTrack } from "../lib/analyze.js";
+import { timeStretch } from "../lib/stretch.js";
 
 self.onmessage = (event) => {
-  const { id, samples, sampleRate } = event.data;
+  const { id, type = "analyze" } = event.data;
   try {
-    self.postMessage({ id, result: analyzeTrack(samples, sampleRate) });
+    if (type === "stretch") {
+      const { channels, sampleRate, tempo } = event.data;
+      const out = timeStretch(channels, sampleRate, tempo);
+      self.postMessage({ id, result: out }, out.map((c) => c.buffer));
+    } else {
+      const { samples, sampleRate } = event.data;
+      self.postMessage({ id, result: analyzeTrack(samples, sampleRate) });
+    }
   } catch (error) {
     self.postMessage({ id, error: String(error?.message || error) });
   }

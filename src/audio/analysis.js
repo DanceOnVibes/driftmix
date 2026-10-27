@@ -1,14 +1,15 @@
 /**
- * Sends a decoded track to the background worker for tempo and key.
- * One worker is shared by both decks; each request gets its own answer.
+ * Sends work to the background workers: tempo and key for a loaded track,
+ * and stretched copies for the transition. Two workers, so a long stretch
+ * never holds up reading a newly loaded track.
  */
-let worker = null;
 let nextId = 1;
 const waiting = new Map();
+const workers = {};
 
-function getWorker() {
-  if (!worker) {
-    worker = new Worker(new URL("./analysis.worker.js", import.meta.url), { type: "module" });
+function getWorker(kind) {
+  if (!workers[kind]) {
+    const worker = new Worker(new URL("./analysis.worker.js", import.meta.url), { type: "module" });
     worker.onmessage = (event) => {
       const { id, result, error } = event.data;
       const job = waiting.get(id);
@@ -18,17 +19,29 @@ function getWorker() {
       else job.resolve(result);
     };
     worker.onerror = (event) => {
-      // The worker itself broke: fail every waiting job and start fresh next time.
-      for (const job of waiting.values()) job.reject(new Error(event.message || "Analysis failed"));
-      waiting.clear();
+      // The worker itself broke: fail its waiting jobs and start fresh next time.
+      for (const [id, job] of waiting) {
+        if (job.kind !== kind) continue;
+        job.reject(new Error(event.message || "Background work failed"));
+        waiting.delete(id);
+      }
       worker.terminate();
-      worker = null;
+      delete workers[kind];
     };
+    workers[kind] = worker;
   }
-  return worker;
+  return workers[kind];
 }
 
-/** Mix all channels down to one (the worker only needs mono). */
+function run(kind, message, transfer) {
+  const id = nextId++;
+  return new Promise((resolve, reject) => {
+    waiting.set(id, { resolve, reject, kind });
+    getWorker(kind).postMessage({ id, ...message }, transfer);
+  });
+}
+
+/** Mix all channels down to one (the analysis only needs mono). */
 function mono(buffer) {
   const out = new Float32Array(buffer.length);
   const channels = buffer.numberOfChannels;
@@ -45,10 +58,25 @@ function mono(buffer) {
  */
 export function analyzeBuffer(buffer) {
   const samples = mono(buffer);
-  const id = nextId++;
-  return new Promise((resolve, reject) => {
-    waiting.set(id, { resolve, reject });
-    // "Transfer" hands the samples over without copying them.
-    getWorker().postMessage({ id, samples, sampleRate: buffer.sampleRate }, [samples.buffer]);
-  });
+  // "Transfer" hands the samples over without copying them.
+  return run("analyze", { type: "analyze", samples, sampleRate: buffer.sampleRate }, [samples.buffer]);
+}
+
+/**
+ * A time-stretched copy of a track, keeping its pitch.
+ * @param {AudioBuffer} buffer
+ * @param {number} tempo  e.g. 0.99 = 1% slower
+ * @returns {Promise<AudioBuffer>}
+ */
+export async function stretchBuffer(buffer, tempo, context) {
+  const channels = [];
+  for (let c = 0; c < buffer.numberOfChannels; c++) channels.push(buffer.getChannelData(c).slice());
+  const out = await run(
+    "stretch",
+    { type: "stretch", channels, sampleRate: buffer.sampleRate, tempo },
+    channels.map((c) => c.buffer),
+  );
+  const result = context.createBuffer(out.length, out[0].length, buffer.sampleRate);
+  out.forEach((data, c) => result.copyToChannel(data, c));
+  return result;
 }
