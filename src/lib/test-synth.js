@@ -34,7 +34,7 @@ const hz = (midi) => 440 * 2 ** ((midi - 69) / 12);
  *           sampleRate?: number, lead?: number, seed?: number, drumsOnly?: boolean }} o
  *   root: 0 = C … 11 = B. lead: seconds of silence before the first beat.
  */
-export function synthTrack({ bpm, root = 2, mode = "minor", seconds = 40, sampleRate = 44100, lead = 0, seed = 7, drumsOnly = false }) {
+export function synthTrack({ bpm, root = 2, mode = "minor", seconds = 40, sampleRate = 44100, lead = 0, seed = 7, drumsOnly = false, bright = false }) {
   const n = Math.round(seconds * sampleRate);
   const out = new Float32Array(n);
   const rnd = random(seed);
@@ -84,6 +84,19 @@ export function synthTrack({ bpm, root = 2, mode = "minor", seconds = 40, sample
       }
       return 0.05 * v;
     });
+    if (bright) {
+      // A bright sawtooth lead (lots of overtones, like a supersaw) hammering
+      // the key's root, plus the chord's fifth. Its 5th overtone lands on the
+      // major third, which is what fools a key reader into "major".
+      for (const [step, note] of [[0, 0], [0.5, 7], [0.25, 0], [0.75, 12]]) {
+        const f = hz(60 + root + note);
+        add(t + step * beat, beat / 4, (x) => {
+          let v = 0;
+          for (let h = 1; h <= 16; h++) v += Math.sin(2 * Math.PI * f * h * x) / h;
+          return 0.09 * v * Math.min(1, x * 300) * Math.exp(-x * 6);
+        });
+      }
+    }
   }
   return { samples: out, sampleRate };
 }

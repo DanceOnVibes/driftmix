@@ -5,7 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { camelot, keyName, parseCamelot } from "./camelot.js";
 import { detectTempo } from "./tempo.js";
-import { detectKey } from "./key.js";
+import { detectKey, rankKeys, keyFromChroma } from "./key.js";
 import { analyzeTrack, downsample, judge } from "./analyze.js";
 import { synthTrack } from "./test-synth.js";
 
@@ -153,5 +153,37 @@ test("local grid: re-measures a drifting tempo to ±0.03 BPM and the beat to ±5
     let e = Math.abs(r.beat - ((((lead - from) % beat) + beat) % beat));
     e = Math.min(e, beat - e);
     assert.ok(e < 0.005, `${bpm}: beat off by ${(e * 1000).toFixed(1)} ms`);
+  }
+});
+
+test("key: a close call between keys that don't mix is marked unsure, with the other option", () => {
+  // Notes like Adalbert's "Vortex of Your Music": F# and C# strong, the third
+  // (A for minor, A# for major) almost level, so major vs minor is a coin toss.
+  const N = { C: 0, "C#": 1, D: 2, "D#": 3, E: 4, F: 5, "F#": 6, G: 7, "G#": 8, A: 9, "A#": 10, B: 11 };
+  const chroma = new Float64Array(12);
+  for (const [n, v] of Object.entries({ "F#": 1, "C#": 0.8, A: 0.51, B: 0.51, "A#": 0.5, "G#": 0.48, D: 0.41, E: 0.4, "D#": 0.37, F: 0.33, C: 0.32, G: 0.31 })) chroma[N[n]] = v;
+  const [first, second] = rankKeys(chroma);
+  assert.equal(second.root, first.root, "runner-up: same root, other mode");
+  const k = keyFromChroma(chroma);
+  assert.equal(k.camelot, "2B");
+  assert.ok(k.confidence < 0.6, "not sure");
+  assert.equal(k.alt.camelot, "11A");
+  // A clear F# minor (A well above A#) is sure, with no alternative.
+  chroma[N.A] = 0.9;
+  chroma[N["A#"]] = 0.2;
+  const clear = keyFromChroma(chroma);
+  assert.equal(clear.camelot, "11A");
+  assert.equal(clear.alt, null);
+  assert.ok(clear.confidence >= 0.6);
+});
+
+test("key: clean tracks in all 24 keys stay sure (no false close calls)", () => {
+  for (let root = 0; root < 12; root += 1) {
+    for (const mode of ["major", "minor"]) {
+      const t = synthTrack({ bpm: 128, root, mode, seconds: 20, bright: root % 2 === 1, seed: root + 3 });
+      const d = downsample(t.samples, t.sampleRate);
+      const k = detectKey(d.samples, d.sampleRate);
+      assert.ok(k.confidence >= 0.6, `${keyName(root, mode)}: ${k.camelot} ${k.confidence.toFixed(2)} alt ${k.alt?.camelot}`);
+    }
   }
 });

@@ -48,10 +48,18 @@ let busy = false; // Auto DJ is loading or starting something itself
 
 // ---- the playlist ------------------------------------------------------
 
+/**
+ * Add tracks to the playlist.
+ * @param {Iterable<File | { file: File, name: string }>} fileList  files, or files with a title (from Files)
+ */
 export function addTracks(fileList) {
-  const files = [...fileList].filter((f) => f.type.startsWith("audio/") || AUDIO_NAME.test(f.name));
-  for (const file of files) {
-    const track = { id: String(nextId++), file, name: file.name.replace(/\.[^.]+$/, ""), status: "reading", tempo: null, key: null, duration: 0 };
+  const entries = [...fileList].map((f) => (f instanceof Blob ? { file: f, name: f.name.replace(/\.[^.]+$/, "") } : f));
+  // Audio only, and each file once (sending from Files twice doesn't double up).
+  const files = entries.filter(
+    ({ file }) => (file.type.startsWith("audio/") || AUDIO_NAME.test(file.name)) && !autoDj.tracks.some((t) => t.file === file),
+  );
+  for (const { file, name } of files) {
+    const track = { id: String(nextId++), file, name, status: "reading", tempo: null, key: null, duration: 0 };
     autoDj.tracks.push(track);
     reading = reading.then(() => readTrack(track));
   }

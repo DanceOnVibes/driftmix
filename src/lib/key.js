@@ -18,7 +18,19 @@
  * stay green for them.
  */
 import { createFft } from "./fft.js";
-import { camelot, keyName } from "./camelot.js";
+import { camelot, keyName, parseCamelot } from "./camelot.js";
+
+/** Two keys this close in score count as a close call. */
+const CLOSE_CALL = 0.06;
+
+/** Same key, its relative (same number), or one step round the wheel. */
+function mixesWith(a, b) {
+  const x = parseCamelot(a);
+  const y = parseCamelot(b);
+  if (!x || !y) return false;
+  const step = Math.min((x.number - y.number + 12) % 12, (y.number - x.number + 12) % 12);
+  return step === 0 || (step === 1 && x.letter === y.letter);
+}
 
 const FFT_SIZE = 16384;
 const LOW_HZ = 100;
@@ -130,15 +142,26 @@ export function rankKeys(chroma) {
 export function detectKey(signal, sampleRate) {
   const chroma = chromagram(signal, sampleRate);
   if (!chroma.some((v) => v > 0)) return null;
-  const [best] = rankKeys(chroma);
+  return keyFromChroma(chroma);
+}
+
+/** The key (with confidence and any close-call alternative) from a 12-box note colour. */
+export function keyFromChroma(chroma) {
+  const ranked = rankKeys(chroma);
+  const best = ranked[0];
+  const code = camelot(best.root, best.mode);
   // Confidence from how closely the best key matches: real music scores about
   // 0.85+, drums only about 0.5, pure noise about 0.35.
-  const confidence = Math.max(0, Math.min(1, (best.score - 0.45) / 0.4));
-  return {
-    root: best.root,
-    mode: best.mode,
-    camelot: camelot(best.root, best.mode),
-    name: keyName(best.root, best.mode),
-    confidence,
-  };
+  let confidence = Math.max(0, Math.min(1, (best.score - 0.45) / 0.4));
+  // A close call between keys that DON'T mix (e.g. F# minor 11A vs F# major
+  // 2B, where only the third differs and overtones blur it) isn't "sure",
+  // however well the winner matches. Close calls between Camelot neighbours
+  // don't matter: they mix either way.
+  const rival = ranked.find((k) => !mixesWith(code, camelot(k.root, k.mode)));
+  let alt = null;
+  if (rival && best.score - rival.score < CLOSE_CALL) {
+    confidence = Math.min(confidence, 0.55);
+    alt = { camelot: camelot(rival.root, rival.mode), name: keyName(rival.root, rival.mode) };
+  }
+  return { root: best.root, mode: best.mode, camelot: code, name: keyName(best.root, best.mode), confidence, alt };
 }

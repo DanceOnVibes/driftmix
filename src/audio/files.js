@@ -138,13 +138,29 @@ async function inspect(it) {
     if (!it.info.channels) it.info.channels = buffer.numberOfChannels;
     if (!it.info.sampleRate) it.info.sampleRate = buffer.sampleRate;
     const result = await analyzeBuffer(buffer);
-    it.analysis = { bpm: result.tempo?.bpm ?? null, camelot: result.key?.camelot ?? null, keyName: result.key?.name ?? null };
+    it.analysis = {
+      bpm: result.tempo?.bpm ?? null,
+      bpmSure: Boolean(result.tempo?.sure),
+      camelot: result.key?.camelot ?? null,
+      keyName: result.key?.name ?? null,
+      keySure: Boolean(result.key?.sure),
+      keyAlt: result.key?.alt?.camelot ?? null,
+    };
     it.status = "ready";
   } catch {
     it.status = "failed";
     it.note = "This file couldn't be read.";
   }
   files.emit();
+}
+
+/**
+ * The Files list, ready to hand to Auto DJ: the original files (best sound,
+ * no extra encoding), in list order, with the titles as edited here.
+ * @returns {{ file: File, name: string }[]}
+ */
+export function filesForAutoDj() {
+  return files.items.filter((it) => it.status !== "failed").map((it) => ({ file: it.file, name: it.title || cleanTitle(it.file.name) }));
 }
 
 export function removeItem(id) {
