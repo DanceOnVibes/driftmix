@@ -18,7 +18,13 @@ import {
   nameFor,
   targetRate,
   filesForAutoDj,
+  planFor,
+  setTarget,
+  setShift,
+  roundAll,
+  BPM_SAFE,
 } from "../audio/files.js";
+import { shiftCamelot } from "../lib/match.js";
 import { autoDj, addTracks } from "../audio/autodj.js";
 
 const STATUS = { reading: "Reading…", ready: "Ready", converting: "Converting", done: "Done", failed: "Can't read", error: "Failed" };
@@ -81,6 +87,16 @@ export function FilesPanel() {
       <div className="autodj-tools">
         <button type="button" className="btn btn-ghost" onClick={() => inputRef.current?.click()} disabled={files.busy}>
           Add files
+        </button>
+        <button
+          type="button"
+          className="btn btn-ghost"
+          onClick={roundAll}
+          disabled={files.busy || !items.some((it) => it.analysis?.bpm)}
+          title="Set every track to its nearest whole BPM, e.g. 132.1 → 132"
+          data-testid="round-all"
+        >
+          Round every BPM
         </button>
         <input
           ref={inputRef}
@@ -220,12 +236,14 @@ export function FilesPanel() {
                     <span className="muted">
                       {" "}
                       → {s.format.toUpperCase()} {targetRate(it) / 1000} kHz {s.channels} {s.format === "mp3" ? `${s.bitrate} kbps` : `${s.bitDepth}-bit`}
+                      {planFor(it).changed && ` · ${[planFor(it).bpm && `${fmt(planFor(it).bpm)} BPM`, planFor(it).camelot].filter(Boolean).join(" · ")}`}
                     </span>
                   )}
                 </p>
                 <p className="fname muted" title={nameFor(it, i)}>
                   {it.output ? it.output.name : nameFor(it, i)}
                 </p>
+                {it.analysis?.bpm && it.status !== "failed" && <Retune it={it} index={i} busy={files.busy} />}
                 {it.note && <p className="fnote">{it.note}</p>}
                 {it.status === "converting" && (
                   <div className="progress" aria-hidden="true">
@@ -314,6 +332,67 @@ export function FilesPanel() {
       {reading && <p className="muted fnote">Reading BPM and key for each file…</p>}
     </section>
   );
+}
+
+/**
+ * Exact BPM and key shift for one track, with what it means: how big the
+ * change is, and whether the track's own tempo wanders.
+ */
+function Retune({ it, index, busy }) {
+  const plan = planFor(it);
+  const a = it.analysis;
+  const commit = (e) => setTarget(it.id, e.target.value);
+  const big = Math.abs(plan.percent) > BPM_SAFE;
+  const st = it.steady;
+  return (
+    <div className="fretune">
+      <label className="fsmall">
+        <span>Exact BPM</span>
+        <input
+          key={`${it.id}-${it.targetBpm}`}
+          type="text"
+          inputMode="decimal"
+          defaultValue={it.targetBpm ?? ""}
+          placeholder={fmt(a.bpm)}
+          onBlur={commit}
+          onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+          disabled={busy}
+          aria-label={`Exact BPM for ${it.title}`}
+          data-testid={`bpm-in-${index}`}
+        />
+      </label>
+      {a.camelot && (
+        <label className="fsmall">
+          <span>Key</span>
+          <select value={it.semitones} onChange={(e) => setShift(it.id, e.target.value)} disabled={busy} data-testid={`shift-${index}`}>
+            {[-2, -1, 0, 1, 2].map((n) => (
+              <option key={n} value={n}>
+                {n === 0 ? `Keep (${a.camelot})` : `${n > 0 ? "+" : "−"}${Math.abs(n)} → ${shiftCamelot(a.camelot, n)}`}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      <span className={`fchange${big ? " fwarn" : ""}`} data-testid={`change-${index}`}>
+        {plan.tempo !== 1 && `${fmt(a.bpm)} → ${fmt(plan.bpm)} BPM (${plan.percent > 0 ? "+" : "−"}${Math.abs(plan.percent).toFixed(1)}%)`}
+        {big && " · a big change: vocals may sound off"}
+      </span>
+      {st && st.level !== "unknown" && (
+        <span className={`fchange${st.level === "wanders" ? " fwarn" : ""}`} data-testid={`steady-${index}`}>
+          {st.level === "steady"
+            ? "Steady tempo ✓"
+            : st.level === "slight"
+              ? `Tempo drifts a little (${fmt(st.min)}–${fmt(st.max)}): fine`
+              : `Tempo wanders ${fmt(st.min)}–${fmt(st.max)} BPM: exact BPM sets the average, it can't straighten it`}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function fmt(bpm) {
+  const r = Math.round(bpm * 10) / 10;
+  return Number.isInteger(r) ? String(r) : r.toFixed(1);
 }
 
 function describe(it) {
