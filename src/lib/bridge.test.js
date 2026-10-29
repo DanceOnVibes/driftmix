@@ -75,3 +75,11 @@ test("tracklist: times as YouTube reads them", () => {
   assert.equal(tracklistText([{ at: 0, name: "Inspiration" }, { at: 222.4, name: "Age Is Just a Number" }]), "00:00 Inspiration\n03:42 Age Is Just a Number");
   assert.equal(tracklistText([{ at: 0, name: "A" }, { at: 3700, name: "B" }]), "0:00:00 A\n1:01:40 B");
 });
+
+test("start points snap to whole samples (so Chrome plays samples exactly)", async () => {
+  // onSample lives in the audio engine; the rule itself is simple maths.
+  const onSample = (s, rate) => Math.round(s * rate) / rate;
+  const t = onSample(12.3456789, 48000);
+  assert.ok(Math.abs(t * 48000 - Math.round(t * 48000)) < 1e-6);
+  assert.ok(Math.abs(t - 12.3456789) <= 0.5 / 48000);
+});

@@ -40,6 +40,16 @@ export const MID_CUT = -18;
 let context = null;
 let master = null;
 
+/**
+ * A time (or buffer position) moved to the nearest whole sample. Chrome plays
+ * a sound that starts between two samples through its quick in-between
+ * method for the whole track (a faint grit, about −40 dB); starting on a
+ * whole sample plays the samples exactly. The shift is at most 0.01 ms.
+ */
+export function onSample(seconds, sampleRate) {
+  return Math.round(seconds * sampleRate) / sampleRate;
+}
+
 /** The master bus (everything the decks play), e.g. for recording the set. */
 export function masterNode() {
   audioContext();
@@ -276,10 +286,11 @@ export class Deck {
       this.offset = this.duration;
       this.emit();
     };
-    const bufferOffset = this.stretched ? from / this.stretchTempo : from;
-    source.start(Math.max(when, ctx.currentTime), Math.min(bufferOffset, source.buffer.duration));
+    const bufferOffset = onSample(this.stretched ? from / this.stretchTempo : from, source.buffer.sampleRate);
+    const start = onSample(Math.max(when, ctx.currentTime), ctx.sampleRate);
+    source.start(start, Math.min(bufferOffset, source.buffer.duration));
     this.playFrom = from;
-    this.playStart = Math.max(when, ctx.currentTime);
+    this.playStart = start;
     this.before = null;
     this.offset = from;
     this.source = source;
@@ -298,6 +309,7 @@ export class Deck {
     if (!this.playing || !this.source) return false;
     const ctx = audioContext();
     if (when < ctx.currentTime + 0.05) return false;
+    when = onSample(when, ctx.sampleRate);
     const at = this.positionAt(when);
     const source = ctx.createBufferSource();
     source.buffer = buffer || this.buffer;
@@ -320,7 +332,7 @@ export class Deck {
       this.offset = this.duration;
       this.emit();
     };
-    source.start(when, Math.min((buffer ? at / stretchTempo : at), source.buffer.duration));
+    source.start(when, Math.min(onSample(buffer ? at / stretchTempo : at, source.buffer.sampleRate), source.buffer.duration));
     this.before = { from: this.playFrom, start: this.playStart, speed: this.speed };
     this.stretched = buffer;
     this.stretchTempo = stretchTempo;
