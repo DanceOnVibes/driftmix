@@ -5,6 +5,8 @@
 
 /** id, label, range, unit, and one line on what it does. */
 export const KNOBS = [
+  { id: "tune", label: "Tune", min: 0, max: 100, step: 1, unit: "%", help: "How much of the gap to the note is closed" },
+  { id: "speed", label: "Speed", min: 10, max: 400, step: 10, unit: " ms", help: "Slow (200+) keeps your slides and vibrato; under 30 is the robotic effect" },
   { id: "clean", label: "Clean", min: 0, max: 100, step: 1, unit: "", help: "Turns the room noise down between phrases" },
   { id: "mud", label: "Mud cut", min: 0, max: 6, step: 0.5, unit: " dB", help: "Less boom and boxiness (around 300 Hz)" },
   { id: "presence", label: "Presence", min: 0, max: 6, step: 0.5, unit: " dB", help: "Words come forward (around 4 kHz)" },
@@ -15,10 +17,10 @@ export const KNOBS = [
 ];
 
 export const PRESETS = {
-  natural: { label: "Natural", knobs: { clean: 30, mud: 2, presence: 2, air: 1, squeeze: 35, reverb: 18, echo: 0 } },
-  radio: { label: "Radio", knobs: { clean: 45, mud: 3, presence: 4, air: 2, squeeze: 65, reverb: 8, echo: 0 } },
-  big: { label: "Big chorus", knobs: { clean: 30, mud: 2.5, presence: 3, air: 3, squeeze: 55, reverb: 40, echo: 25 } },
-  dry: { label: "Dry (as recorded)", knobs: { clean: 0, mud: 0, presence: 0, air: 0, squeeze: 0, reverb: 0, echo: 0 } },
+  natural: { label: "Natural", knobs: { tune: 0, speed: 250, clean: 30, mud: 2, presence: 2, air: 1, squeeze: 35, reverb: 18, echo: 0 } },
+  radio: { label: "Radio", knobs: { tune: 30, speed: 180, clean: 45, mud: 3, presence: 4, air: 2, squeeze: 65, reverb: 8, echo: 0 } },
+  big: { label: "Big chorus", knobs: { tune: 50, speed: 120, clean: 30, mud: 2.5, presence: 3, air: 3, squeeze: 55, reverb: 40, echo: 25 } },
+  dry: { label: "Dry (as recorded)", knobs: { tune: 0, speed: 250, clean: 0, mud: 0, presence: 0, air: 0, squeeze: 0, reverb: 0, echo: 0 } },
 };
 
 /**
