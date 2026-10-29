@@ -17,8 +17,8 @@ Built under DanceOnVibes Limited. Free and open source under the AGPL-3.0.
 | 5c | Files: convert, tag and tidy tracks | Done |
 | 5d | Files: exact BPM, key shift, tempo-drift check | Done |
 | 6 | Vocal Booth: record your voice over a beat, clean and natural | Done |
-| 6b | Pitch correction you control (amount and speed) | **This version** |
-| 7 | Echo-out bridge, tempo journey, record the set | Next |
+| 6b | Pitch correction you control (amount and speed) | Done |
+| 7 | Echo-out bridge, tempo journey, record the set | **This version** |
 | 6 | Launch at thedrift3r.com/driftmix | Next |
 
 ## How it works

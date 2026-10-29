@@ -350,15 +350,15 @@ function noiseBuffer(ctx) {
  * A riser: noise through a narrow filter that sweeps up while it gets louder,
  * peaking right on the drop. Made here, from noise (no sample files).
  */
-function riser(ctx, from, to, level = 0.22) {
+function riser(ctx, from, to, level = 0.45) {
   const src = ctx.createBufferSource();
   src.buffer = noiseBuffer(ctx);
   src.loop = true;
   const band = ctx.createBiquadFilter();
   band.type = "bandpass";
-  band.Q.value = 3;
-  band.frequency.setValueAtTime(350, from);
-  band.frequency.exponentialRampToValueAtTime(7500, to);
+  band.Q.value = 1.6;
+  band.frequency.setValueAtTime(400, from);
+  band.frequency.exponentialRampToValueAtTime(9000, to);
   const gain = ctx.createGain();
   gain.gain.setValueAtTime(0.0001, from);
   gain.gain.exponentialRampToValueAtTime(level, to - 0.03);

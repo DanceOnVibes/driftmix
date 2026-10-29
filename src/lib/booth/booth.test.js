@@ -70,6 +70,27 @@ test("delay: singing (or music) during the clicks is not mistaken for a 0 ms dev
   assert.ok(ok.sure && Math.abs(ok.seconds - 0.09) < 0.0005, `${ok.seconds}`);
 });
 
+test("delay: a buzzy sung voice never gives a false reading, wherever the clicks fall", () => {
+  // Sharp edges once per cycle used to look like a click 3 ms late.
+  const { times } = clickTrain(sr);
+  const n = sr * 8;
+  let wrong = 0;
+  for (let off = 0; off < 2; off += 0.05) {
+    const x = noise(n, 0.0015, 3);
+    let phase = 0;
+    for (let i = 0; i < n; i++) {
+      const t = i / sr + off;
+      if (t % 2 >= 1.5) continue;
+      phase += (2 * Math.PI * 247) / sr;
+      let v = 0;
+      for (let h = 1; h < 12; h++) v += Math.sin(h * phase) / h ** 1.3;
+      x[i] += 0.25 * v;
+    }
+    if (findClickDelay(x, sr, times, 0).sure) wrong++;
+  }
+  assert.equal(wrong, 0, `${wrong} false readings of 40`);
+});
+
 test("align: a take recorded 0.9 s before the beat, with 120 ms delay, starts exactly on the beat", () => {
   // Recorder started at 10.0 s; beat started at 10.9 s; delay 0.12 s.
   const rec = new Float32Array(sr * 3);

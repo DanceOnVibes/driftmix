@@ -74,12 +74,18 @@ export function findClickDelay(recorded, sampleRate, clickTimes, recordStart, { 
       }
     }
     if (at < 0) continue;
-    // A click comes out of quiet. If the sound was already that busy just
-    // before (someone singing, music playing), this isn't our click.
-    const before = Math.max(0, at - Math.round(0.02 * sampleRate));
-    let busy = 0;
-    for (let i = before; i < at; i++) busy += d[i];
-    if (at > before && busy / (at - before) > peak / 8) continue;
+    // A click comes out of quiet: the 5 ms after it must be at least 12 dB
+    // louder than the 30 ms before it. A sound that was already going
+    // (someone singing, music playing) isn't our click, even if it has
+    // sharp edges every cycle.
+    const rms = (from, to) => {
+      let e = 0;
+      for (let i = Math.max(0, from); i < Math.min(n, to); i++) e += recorded[i] * recorded[i];
+      return Math.sqrt(e / Math.max(1, Math.min(n, to) - Math.max(0, from)));
+    };
+    const after = rms(at, at + Math.round(0.005 * sampleRate));
+    const before = rms(at - Math.round(0.032 * sampleRate), at - Math.round(0.002 * sampleRate));
+    if (after < before * 4) continue;
     const delay = at / sampleRate + recordStart - t;
     // No real device answers in under 2 ms: that's a sound that was already there.
     if (delay >= 0.002) delays.push(delay);

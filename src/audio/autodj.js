@@ -320,7 +320,7 @@ function tick() {
   if (!autoDj.onDeck[next.id] || !next.buffer) return; // last track: let it play out
   const t = now.analysis.tempo;
   if (!t) return;
-  if (now.before) return; // settling to its own tempo right now: wait for it
+  if (now.swapPending) return; // settling to its own tempo right now: wait for it
   const choice = chooseMix({
     nowBpm: now.playingBpm,
     nowKey: now.playingCamelot,

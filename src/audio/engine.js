@@ -236,6 +236,12 @@ export class Deck {
     return Math.min(this.duration, this.playFrom + elapsed * this.speed);
   }
 
+  /** A swap to another copy is scheduled and hasn't happened yet. */
+  get swapPending() {
+    if (this.before && context && context.currentTime >= this.playStart) this.before = null; // it has happened
+    return Boolean(this.before);
+  }
+
   /** Where the playhead will be at context time `when` (if nothing changes). */
   positionAt(when) {
     if (!this.playing) return this.offset;
