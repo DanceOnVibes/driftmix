@@ -15,9 +15,9 @@ Built under DanceOnVibes Limited. Free and open source under the AGPL-3.0.
 | 5 | Transition button: beat-match, 8/16/32-bar blend, bass swap | Done |
 | 5b | Auto DJ: a playlist that mixes itself | Done |
 | 5c | Files: convert, tag and tidy tracks | Done |
-| 5d | Files: exact BPM, key shift, tempo-drift check | **This version** |
-| 6 | Vocal Booth: record your voice over a beat, clean and natural | Next |
-| 6b | Pitch correction you control (amount and speed) | Planned |
+| 5d | Files: exact BPM, key shift, tempo-drift check | Done |
+| 6 | Vocal Booth: record your voice over a beat, clean and natural | **This version** |
+| 6b | Pitch correction you control (amount and speed) | Next |
 | 7 | Echo-out bridge, tempo journey, record the set | Planned |
 | 6 | Launch at thedrift3r.com/driftmix | Next |
 

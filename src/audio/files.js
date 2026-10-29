@@ -299,6 +299,20 @@ function getWorker() {
   return worker;
 }
 
+/**
+ * Encode audio in the background with the Files encoder (used by the Vocal
+ * Booth too): settings as in Files (format, bitrate, bitDepth, channels,
+ * loudness, trim), tags as in tagsFor.
+ * @returns {Promise<{ bytes: Uint8Array, loudness: object|null, trimmed: number, seconds: number }>}
+ */
+export function encodeInWorker(channels, sampleRate, settings, tags, onProgress) {
+  const id = jobId++;
+  return new Promise((resolve, reject) => {
+    waiting.set(id, { resolve, reject, onProgress });
+    getWorker().postMessage({ id, channels, sampleRate, settings, tags }, channels.map((c) => c.buffer));
+  });
+}
+
 /** The sample rate a file will come out at (MP3 can't do every rate). */
 export function targetRate(it, settings = files.settings) {
   let rate = settings.sampleRate === "original" ? it.info?.sampleRate || 44100 : Number(settings.sampleRate);

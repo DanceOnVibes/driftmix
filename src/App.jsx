@@ -4,6 +4,7 @@ import { MatchPanel } from "./components/MatchPanel.jsx";
 import { TransitionPanel } from "./components/TransitionPanel.jsx";
 import { AutoDjPanel } from "./components/AutoDjPanel.jsx";
 import { FilesPanel } from "./components/FilesPanel.jsx";
+import { BoothPanel } from "./components/BoothPanel.jsx";
 import { decks, crossfader, setCrossfader } from "./audio/engine.js";
 
 const SITE = "https://thedrift3r.com";
@@ -26,9 +27,10 @@ export function App() {
         </div>
         <nav className="jump" aria-label="Sections">
           <a href="#autodj">Auto DJ</a>
+          <a href="#booth">Vocal Booth</a>
           <a href="#files">Files</a>
         </nav>
-        <p className="status">Two decks, BPM and key, match light, one-press transitions, Auto DJ and Files.</p>
+        <p className="status">Two decks, BPM and key, match light, one-press transitions, Auto DJ, Vocal Booth and Files.</p>
       </header>
 
       <main>
@@ -63,11 +65,12 @@ export function App() {
         </p>
 
         <AutoDjPanel />
+        <BoothPanel />
         <FilesPanel />
       </main>
 
       <footer className="foot">
-        <p className="promise">Your tracks never leave your computer. Nothing is uploaded.</p>
+        <p className="promise">Your tracks and your voice never leave your computer. Nothing is uploaded.</p>
         <p>
           Free and open source (AGPL-3.0) · <a href={SOURCE}>Source code</a> · <a href={`${SITE}/privacy`}>Privacy</a> · MP3
           encoding by <a href="https://lame.sourceforge.io">LAME</a> (via lamejs, LGPL)
