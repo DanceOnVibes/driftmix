@@ -5,6 +5,7 @@ import { BAR_CHOICES } from "../lib/transition.js";
 import { mix } from "../audio/transition.js";
 import { decks } from "../audio/engine.js";
 import { files, filesForAutoDj } from "../audio/files.js";
+import { SetRecorder } from "./SetRecorder.jsx";
 import {
   autoDj,
   addTracks,
@@ -20,6 +21,8 @@ import {
   setBars,
   setTempoChoice,
   skipReason,
+  setBridge,
+  needsBridge,
 } from "../audio/autodj.js";
 
 const TEMPOS = [120, 122, 124, 125, 126, 128, 130, 132, 134, 136, 138, 140, 145, 150];
@@ -71,6 +74,7 @@ export function AutoDjPanel() {
     if (t.status === "failed") return "Can't read the file";
     if (!t.tempo) return "No steady beat";
     if (!playable(t, setBpm)) return `Too far: ${Math.round(Math.abs(skipPercent(t, setBpm)) * 10) / 10}%`;
+    if (needsBridge(t, setBpm)) return "Echo-out bridge";
     return "";
   }
 
@@ -128,6 +132,7 @@ export function AutoDjPanel() {
             data-testid="set-tempo"
           >
             <option value="first">First track{firstBpm ? ` (${fmt(firstBpm)})` : ""}</option>
+            <option value="journey">Journey: each its own</option>
             {TEMPOS.map((n) => (
               <option key={n} value={String(n)}>
                 {n} BPM
@@ -153,6 +158,10 @@ export function AutoDjPanel() {
             </button>
           ))}
         </div>
+        <label className="fcheck" title="When two tracks can't blend (tempos more than 6% apart, or keys that clash), echo the playing one out and drop the next on its own beat, instead of skipping it.">
+          <input type="checkbox" checked={autoDj.bridge} onChange={(e) => setBridge(e.target.checked)} disabled={autoDj.on} data-testid="bridge-on" />
+          <span>Echo-out bridge when tracks don't match</span>
+        </label>
         {autoDj.on ? (
           <button type="button" className="btn btn-silver" onClick={() => stopAutoDj()} data-testid="autodj-toggle">
             Stop Auto DJ
@@ -174,7 +183,7 @@ export function AutoDjPanel() {
         {tracks.length === 0
           ? "No tracks yet. Press Add tracks, or drop a folder's worth of files here."
           : `${ready.length} of ${tracks.length} tracks ready${readingCount ? ` · reading ${readingCount}…` : ""}${
-              setBpm ? ` · set tempo ${fmt(setBpm)} BPM` : ""
+              setBpm ? ` · set tempo ${fmt(setBpm)} BPM` : autoDj.tempoChoice === "journey" ? " · tempo journey" : ""
             }${length ? ` · about ${formatTime(length)} of music` : ""}`}
       </p>
       {hint && (
@@ -188,6 +197,7 @@ export function AutoDjPanel() {
         </p>
       )}
 
+      <SetRecorder />
       {tracks.length > 0 && (
         <ol className="playlist" data-testid="playlist">
           {tracks.map((t, i) => {

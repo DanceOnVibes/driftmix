@@ -123,3 +123,56 @@ test("refine: a big disagreement is not trusted for speed (keeps the plan)", () 
   assert.ok(near(r.speed, plan.speed));
   assert.equal(r.refined.speed, false);
 });
+
+test("stretch quality: a held chord stays clean (the 'pouring water' fix)", async () => {
+  const { wsolaStretch } = await import("./stretch.js");
+  const sr = 48000;
+  const freqs = [];
+  for (const f of [110, 220, 261.63, 329.63, 440]) for (let h = 1; h < 8; h++) freqs.push(f * h);
+  const x = new Float32Array(sr * 4);
+  for (let i = 0; i < x.length; i++) {
+    let v = 0;
+    for (const f of [110, 220, 261.63, 329.63, 440]) for (let h = 1; h < 8; h++) v += Math.sin(2 * Math.PI * f * h * (i / sr) + h) / h / 6;
+    x[i] = 0.1 * v;
+  }
+  // Energy that isn't the chord's notes, from a plain DFT at 1 Hz steps up to 4 kHz.
+  const rough = (y) => {
+    const seg = y.subarray(sr, sr * 3);
+    let notes = 0;
+    let other = 0;
+    for (let f = 50; f < 4000; f += 1) {
+      let re = 0;
+      let im = 0;
+      for (let i = 0; i < seg.length; i += 2) {
+        const w = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / seg.length);
+        re += seg[i] * w * Math.cos((2 * Math.PI * f * i) / sr);
+        im -= seg[i] * w * Math.sin((2 * Math.PI * f * i) / sr);
+      }
+      const p = re * re + im * im;
+      if (freqs.some((n) => Math.abs(n - f) < 4)) notes += p;
+      else other += p;
+    }
+    return 10 * Math.log10(other / (notes + other));
+  };
+  const clean = rough(timeStretch([x], sr, 0.97)[0]);
+  const old = rough(wsolaStretch([x], sr, 0.97)[0]);
+  assert.ok(clean < -40, `new stretch: ${clean.toFixed(1)} dB`);
+  assert.ok(clean < old - 15, `new ${clean.toFixed(1)} dB vs old ${old.toFixed(1)} dB`);
+});
+
+test("stretch: stereo in one pass gives the same as each side on its own (and keeps the image)", async () => {
+  const { vocoderStretch } = await import("./vocoder.js");
+  const sr = 48000;
+  const L = new Float32Array(sr * 2).map((_, i) => 0.3 * Math.sin((2 * Math.PI * 220 * i) / sr) + 0.1 * Math.sin((2 * Math.PI * 1100 * i) / sr));
+  const R = new Float32Array(sr * 2).map((_, i) => 0.2 * Math.sin((2 * Math.PI * 330 * i) / sr));
+  const [a, b] = vocoderStretch([L, R], sr, 1.04);
+  const [c, d] = vocoderStretch([L, R, new Float32Array(L.length)], sr, 1.04); // three channels: no packing
+  let e = 0;
+  let s = 0;
+  for (let i = 0; i < a.length; i++) {
+    e += (a[i] - c[i]) ** 2 + (b[i] - d[i]) ** 2;
+    s += c[i] ** 2 + d[i] ** 2;
+  }
+  assert.ok(10 * Math.log10(e / s + 1e-30) < -100, "identical");
+  assert.equal(a.length, Math.ceil(L.length / 1.04));
+});

@@ -7,17 +7,21 @@
  *  - Start: track 1 plays on deck A, track 2 waits on deck B. Near the end
  *    of each track, Auto DJ presses Mix (key fix on), then loads the next
  *    track onto the deck that just finished. Until the playlist runs out.
- *  - The whole set stays at one tempo: the first track's, or one you pick
- *    (the first track is stretched to it too). Tracks more than 6% away are
- *    skipped, with the reason.
+ *  - Tempo: locked (the first track's, or one you pick; every track is
+ *    stretched to it), or a journey (each track settles to its own tempo
+ *    after its blend, so a set can climb 128 → 135).
+ *  - When two tracks can't blend (tempos more than 6% apart, or keys that
+ *    clash with no fix), an echo-out bridge takes the set across instead of
+ *    skipping the track (unless the bridge is switched off).
  *  - Mixes start on an 8-bar phrase line near the end of each track; tracks
  *    with a "?" tempo get an 8-bar blend so the beats stay tight.
  *  - Touching a deck hands control back to you (Auto DJ switches off).
  */
 import { audioContext, decks, setCrossfader } from "./engine.js";
 import { analyzeBuffer, stretchBuffer } from "./analysis.js";
-import { mix, isActive, nowAndNext, transitionOptions, startTransition, cancelTransition } from "./transition.js";
-import { orderSet, fitsTempo, mixOutIn, mixOutPoint } from "../lib/setlist.js";
+import { mix, isActive, nowAndNext, transitionOptions, startTransition, cancelTransition, startBridge, polish } from "./transition.js";
+import { orderSet, orderJourney, fitsTempo, mixOutIn, mixOutPoint } from "../lib/setlist.js";
+import { chooseMix, settlePoint } from "../lib/bridge.js";
 import { tempoMatch, TEMPO_AMBER } from "../lib/match.js";
 
 const AUDIO_NAME = /\.(mp3|wav|flac|aiff?|m4a|aac|ogg|opus)$/i;
@@ -27,8 +31,9 @@ export const autoDj = {
   tracks: [],
   on: false,
   bars: 16,
-  tempoChoice: "first", // "first" = the first track's tempo, or a number (128 …)
-  setBpm: null, // the set's locked tempo while running
+  tempoChoice: "first", // "first" = the first track's tempo, "journey" = each its own, or a number (128 …)
+  setBpm: null, // the set's locked tempo while running (null on a journey)
+  bridge: true, // echo-out bridge when tracks can't blend (off = skip them)
   onDeck: { a: null, b: null }, // which playlist track is on each deck
   message: "",
   listeners: new Set(),
@@ -111,6 +116,19 @@ export function sortSet() {
   if (autoDj.on) return;
   const ready = autoDj.tracks.filter((t) => t.status === "ready");
   const others = autoDj.tracks.filter((t) => t.status !== "ready");
+  if (autoDj.tempoChoice === "journey") {
+    const j = orderJourney(ready.map((t) => ({ id: t.id, bpm: t.tempo?.bpm ?? null, camelot: t.key?.camelot ?? null })));
+    const byId = new Map(ready.map((t) => [t.id, t]));
+    autoDj.tracks = [...j.order.map((o) => byId.get(o.id)), ...j.left.map((o) => byId.get(o.id)), ...others];
+    const first = j.order[0];
+    const last = j.order[j.order.length - 1];
+    autoDj.message =
+      j.order.length > 1
+        ? `Ordered as a tempo journey: ${fmt(first.bpm)} → ${fmt(last.bpm)} BPM, keys smoothed where tempos are close.${j.left.length ? ` No beat found in ${j.left.length}: moved to the end.` : ""}`
+        : "";
+    autoDj.emit();
+    return;
+  }
   const chosen = autoDj.tempoChoice === "first" ? null : Number(autoDj.tempoChoice);
   const { order, left, setBpm } = orderSet(
     ready.map((t) => ({ id: t.id, bpm: t.tempo?.bpm ?? null, camelot: t.key?.camelot ?? null })),
@@ -119,29 +137,51 @@ export function sortSet() {
   const byId = new Map(ready.map((t) => [t.id, t]));
   const leftTracks = left.map((o) => byId.get(o.id));
   autoDj.tracks = [...order.map((o) => byId.get(o.id)), ...leftTracks, ...others];
+  const bridged = leftTracks.filter((t) => t.tempo && autoDj.bridge);
+  const skipped = leftTracks.filter((t) => !bridged.includes(t));
   autoDj.message = leftTracks.length
-    ? `Moved to the end, Auto DJ will skip: ${leftTracks.map((t) => `${t.name} (${skipReason(t, setBpm)})`).join("; ")}.`
+    ? [
+        bridged.length ? `Moved to the end, played with an echo-out bridge (tempo too far to blend): ${bridged.map((t) => `${t.name} (${fmt(t.tempo.bpm)} BPM)`).join("; ")}.` : "",
+        skipped.length ? `Moved to the end, Auto DJ will skip: ${skipped.map((t) => `${t.name} (${skipReason(t, setBpm)})`).join("; ")}.` : "",
+      ]
+        .filter(Boolean)
+        .join(" ")
     : order.length > 1
       ? `Ordered for flowing keys, all at ${fmt(setBpm)} BPM.`
       : "";
   autoDj.emit();
 }
 
-/** The set's tempo: the one picked, or the first track that has one. */
+/** The set's tempo: the one picked, or the first track that has one (null on a journey). */
 export function setTempo() {
+  if (autoDj.tempoChoice === "journey") return null;
   if (autoDj.tempoChoice !== "first") return Number(autoDj.tempoChoice);
   return autoDj.tracks.find((t) => t.status === "ready" && t.tempo)?.tempo.bpm ?? null;
 }
 
 export function setTempoChoice(value) {
   if (autoDj.on) return;
-  autoDj.tempoChoice = value === "first" ? "first" : Number(value);
+  autoDj.tempoChoice = value === "first" || value === "journey" ? value : Number(value);
   autoDj.emit();
 }
 
-/** Can this track play in the set? */
+export function setBridge(on) {
+  autoDj.bridge = Boolean(on);
+  autoDj.emit();
+}
+
+const journey = () => autoDj.tempoChoice === "journey";
+
+/** Can this track play in the set? (On a journey, or with the bridge on, any track with a beat can.) */
 export function playable(track, setBpm = autoDj.setBpm ?? setTempo()) {
-  return track.status === "ready" && Boolean(track.tempo) && fitsTempo({ bpm: track.tempo.bpm }, setBpm);
+  if (track.status !== "ready" || !track.tempo) return false;
+  if (journey() || autoDj.bridge) return true;
+  return fitsTempo({ bpm: track.tempo.bpm }, setBpm);
+}
+
+/** Joins with an echo-out bridge rather than a blend (tempo too far from the locked set tempo). */
+export function needsBridge(track, setBpm = autoDj.setBpm ?? setTempo()) {
+  return Boolean(track.tempo) && !journey() && autoDj.bridge && !fitsTempo({ bpm: track.tempo.bpm }, setBpm);
 }
 
 /** Why a track can't play in the set, in plain words ("" if it can). */
@@ -149,6 +189,7 @@ export function skipReason(track, setBpm = autoDj.setBpm ?? setTempo()) {
   if (track.status === "failed") return "couldn't read the file";
   if (track.status === "reading") return "still being read";
   if (!track.tempo) return "no steady beat found";
+  if (journey() || autoDj.bridge || !(setBpm > 0)) return "";
   const m = tempoMatch(setBpm, track.tempo.bpm);
   if (m.percent > TEMPO_AMBER) return `${fmt(track.tempo.bpm)} BPM is ${round1(m.percent)}% from ${fmt(setBpm)}, the most is 6%`;
   return "";
@@ -194,7 +235,8 @@ async function queueAfter(afterId, deck) {
 export async function startAutoDj() {
   if (autoDj.on) return;
   const setBpm = setTempo();
-  const first = autoDj.tracks.find((t) => playable(t, setBpm));
+  // Start with the first track that fits the set tempo (any track on a journey).
+  const first = autoDj.tracks.find((t) => playable(t, setBpm) && !needsBridge(t, setBpm)) || autoDj.tracks.find((t) => playable(t, setBpm));
   if (!first) {
     autoDj.message = "Add at least one track with a readable tempo first.";
     autoDj.emit();
@@ -205,13 +247,15 @@ export async function startAutoDj() {
   decks.b.stop();
   autoDj.setBpm = setBpm;
   autoDj.on = true;
+  mix.autoPolish = false; // Auto DJ settles or polishes each track itself
   autoDj.onDeck = { a: null, b: null };
-  autoDj.message = `Set tempo ${fmt(setBpm)} BPM.`;
+  const intro = setBpm ? `Set tempo ${fmt(setBpm)} BPM.` : "Tempo journey: every track settles to its own tempo after its blend.";
+  autoDj.message = intro;
   autoDj.emit();
 
   await loadOnto(decks.a, first);
-  // The first track plays at the set tempo too.
-  const ratio = setBpm / (first.tempo.bpm * tempoMatch(setBpm, first.tempo.bpm).factor);
+  // The first track plays at the set tempo too (on a journey, at its own).
+  const ratio = setBpm && !needsBridge(first, setBpm) ? setBpm / (first.tempo.bpm * tempoMatch(setBpm, first.tempo.bpm).factor) : 1;
   if (Math.abs(ratio - 1) > 1e-4) {
     autoDj.message = `Getting ${first.name} to ${fmt(setBpm)} BPM…`;
     autoDj.emit();
@@ -223,7 +267,7 @@ export async function startAutoDj() {
       stopAutoDj(`Couldn't get ${first.name} to ${fmt(setBpm)} BPM. Try another first track.`);
       return;
     }
-    autoDj.message = `Set tempo ${fmt(setBpm)} BPM.`;
+    autoDj.message = intro;
   }
   setCrossfader(-1);
   busy = true;
@@ -239,6 +283,7 @@ export async function startAutoDj() {
 export function stopAutoDj(message = "Auto DJ off. The music keeps playing; it's yours now.") {
   if (!autoDj.on) return;
   autoDj.on = false;
+  mix.autoPolish = true;
   clearInterval(timer);
   timer = null;
   autoDj.message = message;
@@ -277,20 +322,39 @@ function tick() {
   if (!autoDj.onDeck[next.id] || !next.buffer) return; // last track: let it play out
   const t = now.analysis.tempo;
   if (!t) return;
+  if (now.swapPending) return; // settling to its own tempo right now: wait for it
+  const choice = chooseMix({
+    nowBpm: now.playingBpm,
+    nowKey: now.playingCamelot,
+    nextBpm: next.analysis.tempo?.bpm ?? null,
+    nextKey: next.analysis.key?.camelot ?? null,
+    bridge: autoDj.bridge,
+    setBpm: autoDj.setBpm,
+  });
   // Tracks with a "?" tempo wander a little: keep their blends short.
   const unsure = !t.sure || !next.analysis.tempo?.sure;
-  const bars = unsure ? Math.min(8, autoDj.bars) : autoDj.bars;
-  // Mix out on the last 8-bar phrase line that leaves room for the blend,
-  // starting the preparation a few seconds before it.
+  const bars = choice.kind === "bridge" ? 3 : unsure ? Math.min(8, autoDj.bars) : autoDj.bars;
+  // Mix out on the last 8-bar phrase line that leaves room for the blend (or
+  // the bridge), starting the preparation a few seconds before it. A bridge
+  // that stretches the next track needs longer to get ready.
   const point = mixOutPoint({ firstBeat: t.firstBeat, bpm: t.bpm, duration: now.duration, bars });
-  const lead = 3; // real seconds to measure the beats and schedule
+  const xt = next.analysis.tempo;
+  const ratio = choice.kind === "bridge" && choice.targetBpm && xt ? choice.targetBpm / (xt.bpm * tempoMatch(choice.targetBpm, xt.bpm).factor) : 1;
+  const lead = choice.kind === "bridge" && Math.abs(ratio - 1) > 1e-4 ? 9 : 3; // real seconds
   const due =
     point !== null && point > now.position
       ? (point - now.position) / now.speed <= lead
       : mixOutIn({ position: now.position, duration: now.duration, speed: now.speed, bpm: t.bpm, bars }) <= 0;
   if (!due) return;
+  const nextName = autoDj.tracks.find((x) => x.id === autoDj.onDeck[next.id])?.name ?? "the next track";
+  if (choice.kind === "bridge") {
+    autoDj.message = `${nextName}: echo-out bridge (${choice.why}).`;
+    autoDj.emit();
+    void startBridge({ ratio, heardBpm: choice.targetBpm, why: choice.why });
+    return;
+  }
   const opts = transitionOptions(now, next);
-  if (opts.ok) {
+  if (choice.kind === "blend" && opts.ok) {
     if (bars < autoDj.bars) {
       autoDj.message = "A track with a ? tempo: blending over 8 bars to keep the beats tight.";
       autoDj.emit();
@@ -300,8 +364,31 @@ function tick() {
   }
   // Can't mix into this one: skip it and try the track after.
   const skippedId = autoDj.onDeck[next.id];
-  autoDj.message = `Skipped ${autoDj.tracks.find((x) => x.id === skippedId)?.name ?? "a track"}: ${opts.reason}`;
+  autoDj.message = `Skipped ${nextName}: ${opts.ok ? choice.why : opts.reason}`;
   void queueAfter(skippedId, next);
+}
+
+// ---- after each blend: settle (journey) or polish (locked) ----------------
+
+/**
+ * After a blend the new track plays a prepared copy with a tiny speed trim.
+ * On the next phrase line (well before its own mix-out) it swaps to a clean
+ * copy: on a journey at its own tempo (it "settles"); with a locked tempo at
+ * exactly the set tempo. Key shifts stay built in either way.
+ */
+async function afterBlend(deck) {
+  if (!autoDj.on) return;
+  const t = deck.analysis.tempo;
+  if (!t) return;
+  const mixOut = mixOutPoint({ firstBeat: t.firstBeat, bpm: t.bpm, duration: deck.duration, bars: autoDj.bars }) ?? deck.duration;
+  const from = deck.playingBpm;
+  const ok = journey()
+    ? await polish(deck, 1, { before: mixOut, heardBpm: null })
+    : await polish(deck, deck.speed, { before: mixOut, heardBpm: deck.heardBpm });
+  if (!ok || !journey() || Math.abs(from - t.bpm) < 0.05) return;
+  const name = autoDj.tracks.find((x) => x.id === autoDj.onDeck[deck.id])?.name ?? "The track";
+  autoDj.message = `${name} settles from ${fmt(from)} to its own ${fmt(t.bpm)} BPM on the next phrase.`;
+  autoDj.emit();
 }
 
 // When a transition finishes, load the next track onto the deck that just
@@ -315,6 +402,7 @@ mix.subscribe(() => {
   autoDj.onDeck[freeId] = null;
   lastNow = decks[mix.state.to];
   void queueAfter(playingTrack, decks[freeId]);
+  void afterBlend(decks[mix.state.to]);
 });
 
 // The DJ touching a deck hands control back.
@@ -329,8 +417,10 @@ export function setLength() {
   const setBpm = autoDj.setBpm ?? setTempo();
   const list = autoDj.tracks.filter((t) => playable(t, setBpm));
   if (!list.length) return 0;
-  const blend = (autoDj.bars * 4 * 60) / setBpm;
-  const total = list.reduce((sum, t) => sum + t.duration * (t.tempo.bpm / setBpm), 0);
+  const speedOf = (t) => (setBpm && !needsBridge(t, setBpm) ? setBpm / t.tempo.bpm : 1);
+  const total = list.reduce((sum, t) => sum + t.duration / speedOf(t), 0);
+  const avg = list.reduce((sum, t) => sum + t.tempo.bpm * speedOf(t), 0) / list.length;
+  const blend = (autoDj.bars * 4 * 60) / avg;
   return Math.max(0, total - blend * (list.length - 1));
 }
 

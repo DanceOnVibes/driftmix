@@ -82,17 +82,19 @@ export function tempoSteadiness(buffer, bpm) {
 }
 
 /**
- * A time-stretched copy of a track, keeping its pitch.
+ * A time-stretched copy of a track, keeping its pitch, or moved by whole
+ * semitones (built in, so the copy plays at normal speed with the new key).
  * @param {AudioBuffer} buffer
- * @param {number} tempo  e.g. 0.99 = 1% slower
+ * @param {number} tempo  e.g. 0.99 = 1% slower (track seconds per copy second)
+ * @param {number} [semitones]  key shift, e.g. +1
  * @returns {Promise<AudioBuffer>}
  */
-export async function stretchBuffer(buffer, tempo, context) {
+export async function stretchBuffer(buffer, tempo, context, semitones = 0) {
   const channels = [];
   for (let c = 0; c < buffer.numberOfChannels; c++) channels.push(buffer.getChannelData(c).slice());
   const out = await run(
     "stretch",
-    { type: "stretch", channels, sampleRate: buffer.sampleRate, tempo },
+    { type: "stretch", channels, sampleRate: buffer.sampleRate, tempo, semitones },
     channels.map((c) => c.buffer),
   );
   const result = context.createBuffer(out.length, out[0].length, buffer.sampleRate);

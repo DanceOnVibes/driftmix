@@ -15,7 +15,7 @@
  *    heard straight away. Saving renders exactly the same chain.
  * Nothing leaves the device.
  */
-import { audioContext } from "./engine.js";
+import { audioContext, onSample } from "./engine.js";
 import { analyzeBuffer, pitchTrack } from "./analysis.js";
 import { files, encodeInWorker } from "./files.js";
 import { clickTrain, findClickDelay, alignTake, joinChunks, blip } from "../lib/booth/latency.js";
@@ -407,7 +407,7 @@ export async function record() {
   const ctx = audioContext();
   const beatLen = booth.beat.bpm ? 60 / booth.beat.bpm : 0.5;
   const count = booth.countIn ? 4 : 0;
-  const beatStartTime = ctx.currentTime + 0.3 + count * beatLen;
+  const beatStartTime = onSample(ctx.currentTime + 0.3 + count * beatLen, ctx.sampleRate);
   booth.clipped = false;
   recStart();
   for (let k = 0; k < count; k++) click(ctx, beatStartTime - (count - k) * beatLen, k === 0 ? 2000 : 1500);
@@ -416,7 +416,7 @@ export async function record() {
   const level = ctx.createGain();
   level.gain.value = dbGain(booth.beatDb);
   src.connect(level).connect(ctx.destination);
-  src.start(beatStartTime, booth.from);
+  src.start(beatStartTime, onSample(booth.from, booth.beat.buffer.sampleRate));
   src.onended = () => {
     if (session?.src === src) void stopRecording();
   };
@@ -666,7 +666,7 @@ export function play(at = null) {
   const { voice, autoDb } = takeVoice(take);
   const chain = buildChain(ctx, ctx.destination);
   chain.update(autoDb);
-  const when = ctx.currentTime + 0.08;
+  const when = onSample(ctx.currentTime + 0.08, ctx.sampleRate);
   const beat = ctx.createBufferSource();
   beat.buffer = booth.beat.buffer;
   beat.connect(chain.beatIn);
@@ -676,8 +676,8 @@ export function play(at = null) {
   vocal.buffer = vb;
   vocal.connect(chain.vocalIn);
   const pos = Math.max(take.from, Math.min(at ?? take.from, take.from + voice.length / take.sampleRate));
-  beat.start(when, pos);
-  vocal.start(when, pos - take.from);
+  beat.start(when, onSample(pos, booth.beat.buffer.sampleRate));
+  vocal.start(when, onSample(pos - take.from, take.sampleRate));
   // Stop a couple of seconds after the take ends (or at the end of the beat).
   const end = Math.min(booth.beat.buffer.duration - pos, take.from + voice.length / take.sampleRate + 2 - pos);
   beat.stop(when + Math.max(0.1, end));
@@ -798,7 +798,7 @@ export async function save(kind) {
       const vocal = off.createBufferSource();
       vocal.buffer = vb;
       vocal.connect(chain.vocalIn);
-      vocal.start(take.from);
+      vocal.start(onSample(take.from, rate));
       if (kind === "mix") {
         const beat = off.createBufferSource();
         beat.buffer = booth.beat.buffer;
