@@ -8,6 +8,8 @@ import {
   warmUp,
   startTransition,
   cancelTransition,
+  startBridge,
+  bridgeOptions,
 } from "../audio/transition.js";
 import { BAR_CHOICES } from "../lib/transition.js";
 
@@ -45,6 +47,7 @@ export function TransitionPanel() {
   const N = now.id.toUpperCase();
   const X = next.id.toUpperCase();
   const opts = transitionOptions(now, next);
+  const canBridge = bridgeOptions(now, next).ok;
   const state = mix.state;
   const active = isActive();
   const ready = mix.ready && mix.ready.id === next.id ? mix.ready.status : null;
@@ -56,7 +59,15 @@ export function TransitionPanel() {
 
   let progress = 0;
   let detail = "";
-  if ((state.status === "waiting" || state.status === "blending") && state.when) {
+  if ((state.status === "waiting" || state.status === "blending") && state.when && state.bridge) {
+    const t = audioContext().currentTime;
+    const elapsed = t - state.when;
+    if (elapsed < 0) detail = `Starts in ${Math.max(0, -elapsed).toFixed(1)} s, on the phrase.`;
+    else {
+      progress = Math.min(1, elapsed / (state.end - state.when));
+      detail = elapsed < state.swapAt ? `Echo building · ${X} drops in ${(state.swapAt - elapsed).toFixed(1)} s` : `${X} dropped · echoes ringing out`;
+    }
+  } else if ((state.status === "waiting" || state.status === "blending") && state.when) {
     const t = audioContext().currentTime;
     const elapsed = t - state.when;
     if (elapsed < 0) {
@@ -72,7 +83,7 @@ export function TransitionPanel() {
   }
 
   const readiness = !opts.ok
-    ? opts.reason
+    ? `${opts.reason}${canBridge && opts.reason.includes("6%") ? ` Echo out still works: ${X} drops on its own beat, at its own tempo.` : ""}`
     : ready === "working"
       ? `Getting ${X} ready to match ${fmt(now.playingBpm)} BPM…`
       : ready === "failed"
@@ -109,15 +120,27 @@ export function TransitionPanel() {
             Cancel
           </button>
         ) : (
-          <button
-            type="button"
-            className="btn btn-gold mix-btn"
-            onClick={() => void startTransition({ bars, useFix })}
-            disabled={!opts.ok}
-            data-testid="mix"
-          >
-            Mix {N} → {X}
-          </button>
+          <span className="mix-pair">
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => void startBridge({ why: "by hand" })}
+              disabled={!canBridge}
+              title="Echo out the playing track on the next phrase, with a riser, and drop the next one on its own beat. Works for any two tracks."
+              data-testid="bridge"
+            >
+              Echo out
+            </button>
+            <button
+              type="button"
+              className="btn btn-gold mix-btn"
+              onClick={() => void startTransition({ bars, useFix })}
+              disabled={!opts.ok}
+              data-testid="mix"
+            >
+              Mix {N} → {X}
+            </button>
+          </span>
         )}
       </div>
 

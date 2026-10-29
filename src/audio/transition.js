@@ -17,9 +17,10 @@
  *     about to play, and the start points snap to the real beats.
  *  4. Done: the old track stops, the crossfader moves to the new deck.
  */
-import { audioContext, decks, crossfader, setCrossfader, BASS_CUT, MID_CUT } from "./engine.js";
+import { audioContext, decks, crossfader, setCrossfader, BASS_CUT, MID_CUT, masterNode, echoControls } from "./engine.js";
 import { stretchBuffer, localGrid } from "./analysis.js";
 import { planTransition, refinePlan, blendCurves } from "../lib/transition.js";
+import { planBridge } from "../lib/bridge.js";
 import { tempoMatch, keyMatch, keyFixes } from "../lib/match.js";
 
 /** What the transition is doing, for the screen. */
@@ -285,9 +286,10 @@ export async function startTransition({ bars, useFix, phraseBars = 1 }) {
 }
 
 function finish() {
-  const { now, next, plan } = current;
+  const { now, next, plan, cleanup } = current;
   clearTimers();
   current = null;
+  cleanup?.();
   now.pause();
   now.resetEq();
   next.resetEq();
@@ -295,7 +297,7 @@ function finish() {
   setCrossfader(next.id === "b" ? 1 : -1);
   const r = Math.round(plan.nextBpm * 10) / 10;
   const bpm = Number.isInteger(r) ? r : r.toFixed(1);
-  mix.set({ status: "done", from: now.id, to: next.id, message: `Done. ${next.id.toUpperCase()} is playing at ${bpm} BPM.` });
+  mix.set({ status: "done", from: now.id, to: next.id, message: plan.nextBpm > 0 ? `Done. ${next.id.toUpperCase()} is playing at ${bpm} BPM.` : `Done. ${next.id.toUpperCase()} is playing.` });
 }
 
 /** Stop a transition and put things back as they were before it. */
@@ -304,8 +306,9 @@ export function cancelTransition(reason = "Transition stopped.") {
   run++;
   clearTimers();
   if (current) {
-    const { next, plan } = current;
+    const { next, plan, cleanup } = current;
     current = null;
+    cleanup?.();
     next.stop();
     next.offset = plan.nextStart;
     next.emit();
@@ -315,6 +318,165 @@ export function cancelTransition(reason = "Transition stopped.") {
   crossfader.locked = false;
   setCrossfader(crossfader.position);
   mix.set({ status: "idle", message: reason });
+}
+
+// ---- the echo-out bridge -------------------------------------------------
+
+/** Can we bridge right now? (Any two tracks can: nothing has to match.) */
+export function bridgeOptions(now, next) {
+  if (!now.buffer || !next.buffer) return { ok: false, reason: "Load a track on both decks." };
+  if (!now.playing) return { ok: false, reason: `Play the track that's on now (${now.id.toUpperCase()}) first.` };
+  if (next.playing) return { ok: false, reason: `Pause ${next.id.toUpperCase()} first.` };
+  return { ok: true };
+}
+
+let noise = null;
+function noiseBuffer(ctx) {
+  if (!noise || noise.sampleRate !== ctx.sampleRate) {
+    noise = ctx.createBuffer(2, ctx.sampleRate * 2, ctx.sampleRate);
+    let seed = 11;
+    for (let c = 0; c < 2; c++) {
+      const d = noise.getChannelData(c);
+      for (let i = 0; i < d.length; i++) {
+        seed = (seed * 16807) % 2147483647;
+        d[i] = (seed / 2147483647) * 2 - 1;
+      }
+    }
+  }
+  return noise;
+}
+
+/**
+ * A riser: noise through a narrow filter that sweeps up while it gets louder,
+ * peaking right on the drop. Made here, from noise (no sample files).
+ */
+function riser(ctx, from, to, level = 0.22) {
+  const src = ctx.createBufferSource();
+  src.buffer = noiseBuffer(ctx);
+  src.loop = true;
+  const band = ctx.createBiquadFilter();
+  band.type = "bandpass";
+  band.Q.value = 3;
+  band.frequency.setValueAtTime(350, from);
+  band.frequency.exponentialRampToValueAtTime(7500, to);
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0.0001, from);
+  gain.gain.exponentialRampToValueAtTime(level, to - 0.03);
+  gain.gain.linearRampToValueAtTime(0, to + 0.04);
+  src.connect(band).connect(gain).connect(masterNode());
+  src.start(from);
+  src.stop(to + 0.1);
+  return () => {
+    try {
+      src.stop();
+    } catch {
+      /* already stopped */
+    }
+    gain.disconnect();
+  };
+}
+
+/**
+ * Echo-out bridge: on the next phrase line the playing track is filtered up
+ * and fed into an echo while a riser builds; two bars later it cuts, the
+ * echoes ring out, and the next track drops on its own first beat.
+ * @param {object} o
+ * @param {number} [o.ratio]    stretch for the next track (1 = its own tempo)
+ * @param {number|null} [o.heardBpm]  the tempo it will play at, for display
+ * @param {string} [o.why]      shown on screen ("keys clash", …)
+ */
+export async function startBridge({ ratio = 1, heardBpm = null, why = "" } = {}) {
+  const [now, next] = nowAndNext();
+  if (!bridgeOptions(now, next).ok || isActive()) return;
+  const N = now.id.toUpperCase();
+  const X = next.id.toUpperCase();
+  const token = ++run;
+  mix.set({ status: "preparing", from: now.id, to: next.id, bridge: true, message: `Getting ${X} ready for an echo-out bridge…` });
+  let stretched = null;
+  if (Math.abs(ratio - 1) > 1e-4) {
+    try {
+      stretched = await stretchBuffer(next.buffer, ratio, audioContext());
+    } catch {
+      if (token === run) mix.set({ status: "error", message: `Couldn't prepare ${X}. Try loading it again.` });
+      return;
+    }
+  }
+  if (token !== run) return;
+  if (!now.playing) {
+    mix.set({ status: "idle", message: `${N} stopped, so the bridge didn't start.` });
+    return;
+  }
+  const ctx = audioContext();
+  const nt = now.analysis.tempo;
+  const p = nt
+    ? planBridge({ bpm: nt.bpm, firstBeat: nt.firstBeat, position: now.position, speed: now.speed, duration: now.duration })
+    : { startIn: 0.5, dropIn: 4.5, beat: 0.5, echoBars: 2 };
+  const t0 = ctx.currentTime + p.startIn;
+  const t1 = ctx.currentTime + p.dropIn;
+  const t2 = t1 + 8 * p.beat; // the echoes ring out over 2 more bars
+  const xt = next.analysis.tempo;
+  const nextStart = next.cue > 0 ? next.cue : xt ? Math.max(0, xt.firstBeat) : 0;
+  const nativeBpm = xt ? xt.bpm : null;
+  const playsAt = heardBpm ?? (nativeBpm ? nativeBpm * ratio : null);
+
+  now.ensureNodes();
+  next.ensureNodes();
+  next.setStretch({ buffer: stretched, stretchTempo: stretched ? ratio : 1, pitchRate: 1, semitones: 0, heardBpm: stretched ? playsAt : null });
+  next.resetEq();
+  crossfader.locked = true;
+  crossfader.emit();
+
+  const t = ctx.currentTime;
+  const nowFader = now.faderNode.gain;
+  const nextFader = next.faderNode.gain;
+  const startLevel = Math.max(0.0001, nowFader.value);
+  for (const prm of [nowFader, nextFader, now.filterNode.frequency, now.sendNode.gain]) prm.cancelScheduledValues(t);
+  nowFader.setValueAtTime(startLevel, t);
+  nextFader.setValueAtTime(0, t);
+  // 1. Filter sweep up and the echo send opening, over the two bars.
+  const hp = now.filterNode.frequency;
+  hp.setValueAtTime(10, t);
+  hp.setValueAtTime(30, t0);
+  hp.exponentialRampToValueAtTime(1800, t1);
+  const send = now.sendNode.gain;
+  send.setValueAtTime(0, t);
+  send.setValueAtTime(0, t0);
+  send.linearRampToValueAtTime(0.85, t0 + 4 * p.beat);
+  send.setValueAtTime(0.85, t1 - 0.02);
+  send.linearRampToValueAtTime(0, t1);
+  const echo = echoControls();
+  echo.delay.delayTime.setValueAtTime(Math.min(3.9, p.beat), t);
+  echo.feedback.gain.cancelScheduledValues(t);
+  echo.feedback.gain.setValueAtTime(0.55, t);
+  echo.feedback.gain.setValueAtTime(0.55, t1);
+  echo.feedback.gain.linearRampToValueAtTime(0.4, t1 + 4 * p.beat);
+  echo.out.gain.cancelScheduledValues(t);
+  echo.out.gain.setValueAtTime(1, t);
+  echo.out.gain.setValueAtTime(1, t1 + 4 * p.beat);
+  echo.out.gain.linearRampToValueAtTime(0, t2);
+  // 2. The dry track cuts on the drop; the next one comes in full.
+  nowFader.setValueAtTime(startLevel, t1 - 0.02);
+  nowFader.linearRampToValueAtTime(0, t1);
+  nextFader.setValueAtTime(0, t1 - 0.005);
+  nextFader.linearRampToValueAtTime(1, t1 + 0.005);
+  const stopRiser = riser(ctx, t0, t1);
+  next.startAt(t1, nextStart);
+
+  const cleanup = () => {
+    stopRiser();
+    const c = audioContext().currentTime;
+    echo.out.gain.cancelScheduledValues(c);
+    echo.out.gain.setValueAtTime(1, c);
+    echo.feedback.gain.cancelScheduledValues(c);
+    echo.feedback.gain.setValueAtTime(0.55, c);
+  };
+  current = { now, next, plan: { nextStart, nextBpm: playsAt ?? 0 }, token, cleanup, bridge: true };
+  const base = { from: now.id, to: next.id, when: t0, end: t2, swapAt: t1 - t0, drop: t1, bridge: true, nextBpm: playsAt, why };
+  mix.set({ ...base, status: "waiting", message: `Echo-out bridge on the next phrase${why ? ` (${why})` : ""}…` });
+  timers.push(
+    setTimeout(() => token === run && mix.set({ ...base, status: "blending", message: `Echo-out bridge ${N} → ${X}${why ? ` (${why})` : ""}` }), Math.max(0, (t0 - ctx.currentTime) * 1000)),
+  );
+  timers.push(setTimeout(() => token === run && finish(), Math.max(0, (t2 - ctx.currentTime) * 1000) + 60));
 }
 
 // Touching a deck (play, pause, cue, seek, load) during a transition stops it.

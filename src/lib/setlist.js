@@ -102,3 +102,29 @@ export function mixOutPoint({ firstBeat, bpm, duration, bars, phraseBars = 8, ta
   if (!(latest >= firstBeat)) return null;
   return firstBeat + Math.floor((latest - firstBeat) / phrase + 1e-9) * phrase;
 }
+
+/**
+ * Tempo journey order: slowest to fastest, so the set climbs (128 → 135).
+ * Where two tracks are within 1 BPM of each other, their order is free, and
+ * swaps that make the keys flow better are taken.
+ * @param {SetTrack[]} tracks
+ * @returns {{ order: SetTrack[], left: SetTrack[], cost: number }}  left: no tempo found
+ */
+export function orderJourney(tracks) {
+  const order = tracks.filter((t) => t.bpm > 0).sort((a, b) => a.bpm - b.bpm);
+  const left = tracks.filter((t) => !(t.bpm > 0));
+  let improved = true;
+  while (improved) {
+    improved = false;
+    for (let i = 0; i < order.length - 1; i++) {
+      if (Math.abs(order[i + 1].bpm - order[i].bpm) > 1) continue;
+      const swapped = [...order];
+      [swapped[i], swapped[i + 1]] = [swapped[i + 1], swapped[i]];
+      if (pathCost(swapped) < pathCost(order)) {
+        order.splice(0, order.length, ...swapped);
+        improved = true;
+      }
+    }
+  }
+  return { order, left, cost: pathCost(order) };
+}

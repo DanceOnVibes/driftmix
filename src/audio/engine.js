@@ -3,10 +3,12 @@
  * Web Audio. Tracks are read from the DJ's computer and stay there.
  *
  * Signal path for each deck:
- *   track → deck volume → bass EQ → mid EQ → crossfader gain → master → speakers
+ *   track → deck volume → filter → bass EQ → mid EQ → crossfader gain → master → speakers
+ *                                                          └→ echo send (the echo-out bridge)
  *
  * The bass and mid EQs are what the transition button uses for the bass swap
- * and the vocal (mid) swap.
+ * and the vocal (mid) swap; the filter (a high-pass, normally wide open) and
+ * the echo send are for the echo-out bridge.
  *
  * Browsers only allow sound to start after the person clicks something, so the
  * audio context is created (or woken up) on the first click.
@@ -38,6 +40,12 @@ export const MID_CUT = -18;
 let context = null;
 let master = null;
 
+/** The master bus (everything the decks play), e.g. for recording the set. */
+export function masterNode() {
+  audioContext();
+  return master;
+}
+
 export function audioContext() {
   if (!context) {
     const Ctx = window.AudioContext || window.webkitAudioContext;
@@ -62,6 +70,8 @@ export class Deck {
      */
     this.analysis = { status: "none", tempo: null, key: null };
     this.source = null;
+    this.sourceGain = null;
+    this.before = null; // the previous speed mapping, until a scheduled swap happens
     this.playing = false;
     this.offset = 0; // where in the track we are while paused (track seconds)
     this.playFrom = 0; // track seconds where the current playback began
@@ -75,6 +85,8 @@ export class Deck {
     this.bassNode = null;
     this.midNode = null;
     this.faderNode = null;
+    this.filterNode = null;
+    this.sendNode = null;
     this.clearStretch();
     /** Called when the DJ presses something on this deck (the transition and Auto DJ listen). */
     this.touchHandlers = new Set();
@@ -123,10 +135,19 @@ export class Deck {
       this.midNode.Q.value = MID_Q;
       this.midNode.gain.value = 0;
       this.faderNode = ctx.createGain();
-      this.volumeNode.connect(this.bassNode);
+      this.filterNode = ctx.createBiquadFilter();
+      this.filterNode.type = "highpass";
+      this.filterNode.frequency.value = 10; // wide open
+      this.filterNode.Q.value = 0.7;
+      this.sendNode = ctx.createGain();
+      this.sendNode.gain.value = 0;
+      this.volumeNode.connect(this.filterNode);
+      this.filterNode.connect(this.bassNode);
       this.bassNode.connect(this.midNode);
       this.midNode.connect(this.faderNode);
       this.faderNode.connect(master);
+      this.faderNode.connect(this.sendNode);
+      this.sendNode.connect(echoBus(ctx));
       this.volumeNode.gain.value = this.volume;
       this.faderNode.gain.value = this.fader;
     }
@@ -205,8 +226,20 @@ export class Deck {
   /** Where the playhead is right now, in track seconds. */
   get position() {
     if (!this.playing || !context) return this.offset;
-    const elapsed = Math.max(0, context.currentTime - this.playStart);
+    const now = context.currentTime;
+    // A swap to another speed is scheduled but hasn't happened yet.
+    if (this.before && now < this.playStart) {
+      const b = this.before;
+      return Math.min(this.duration, b.from + Math.max(0, now - b.start) * b.speed);
+    }
+    const elapsed = Math.max(0, now - this.playStart);
     return Math.min(this.duration, this.playFrom + elapsed * this.speed);
+  }
+
+  /** Where the playhead will be at context time `when` (if nothing changes). */
+  positionAt(when) {
+    if (!this.playing) return this.offset;
+    return Math.min(this.duration, this.playFrom + Math.max(0, when - this.playStart) * this.speed);
   }
 
   play() {
@@ -227,7 +260,8 @@ export class Deck {
     const source = ctx.createBufferSource();
     source.buffer = this.stretched || this.buffer;
     source.playbackRate.value = this.pitchRate;
-    source.connect(this.volumeNode);
+    const gain = ctx.createGain();
+    source.connect(gain).connect(this.volumeNode);
     source.onended = () => {
       // Only react if this is still the active source and it ran to the end.
       if (this.source !== source) return;
@@ -240,10 +274,59 @@ export class Deck {
     source.start(Math.max(when, ctx.currentTime), Math.min(bufferOffset, source.buffer.duration));
     this.playFrom = from;
     this.playStart = Math.max(when, ctx.currentTime);
+    this.before = null;
     this.offset = from;
     this.source = source;
+    this.sourceGain = gain;
     this.playing = true;
     this.emit();
+  }
+
+  /**
+   * While playing, switch to another copy of the track (another tempo) at
+   * context time `when`, from exactly where the playhead will be then, with
+   * a 20 ms cross-fade so nothing clicks. Used by the tempo journey to let a
+   * track settle back to its own tempo on a phrase line.
+   */
+  swapAt(when, { buffer, stretchTempo, pitchRate, semitones, heardBpm = null }) {
+    if (!this.playing || !this.source) return false;
+    const ctx = audioContext();
+    if (when < ctx.currentTime + 0.05) return false;
+    const at = this.positionAt(when);
+    const source = ctx.createBufferSource();
+    source.buffer = buffer || this.buffer;
+    source.playbackRate.value = pitchRate;
+    const gain = ctx.createGain();
+    source.connect(gain).connect(this.volumeNode);
+    const fade = 0.02;
+    gain.gain.setValueAtTime(0, when);
+    gain.gain.linearRampToValueAtTime(1, when + fade);
+    const old = this.source;
+    const oldGain = this.sourceGain;
+    oldGain.gain.setValueAtTime(1, when);
+    oldGain.gain.linearRampToValueAtTime(0, when + fade);
+    old.onended = null;
+    old.stop(when + fade + 0.01);
+    source.onended = () => {
+      if (this.source !== source) return;
+      this.source = null;
+      this.playing = false;
+      this.offset = this.duration;
+      this.emit();
+    };
+    source.start(when, Math.min((buffer ? at / stretchTempo : at), source.buffer.duration));
+    this.before = { from: this.playFrom, start: this.playStart, speed: this.speed };
+    this.stretched = buffer;
+    this.stretchTempo = stretchTempo;
+    this.pitchRate = pitchRate;
+    this.semitones = semitones;
+    this.heardBpm = heardBpm;
+    this.playFrom = at;
+    this.playStart = when;
+    this.source = source;
+    this.sourceGain = gain;
+    this.emit();
+    return true;
   }
 
   pause() {
@@ -264,7 +347,10 @@ export class Deck {
         /* already stopped */
       }
       s.disconnect();
+      this.sourceGain?.disconnect();
+      this.sourceGain = null;
     }
+    this.before = null;
     this.playing = false;
   }
 
@@ -313,12 +399,21 @@ export class Deck {
     }
   }
 
-  /** Bass and mid EQ back to flat, straight away. */
+  /** Bass and mid EQ back to flat, filter open, echo send off, straight away. */
   resetEq() {
+    const t = context.currentTime;
     for (const node of [this.bassNode, this.midNode]) {
       if (!node) continue;
-      node.gain.cancelScheduledValues(context.currentTime);
-      node.gain.setValueAtTime(0, context.currentTime);
+      node.gain.cancelScheduledValues(t);
+      node.gain.setValueAtTime(0, t);
+    }
+    if (this.filterNode) {
+      this.filterNode.frequency.cancelScheduledValues(t);
+      this.filterNode.frequency.setValueAtTime(10, t);
+    }
+    if (this.sendNode) {
+      this.sendNode.gain.cancelScheduledValues(t);
+      this.sendNode.gain.setValueAtTime(0, t);
     }
   }
 
@@ -333,6 +428,40 @@ export class Deck {
 }
 
 export const decks = { a: new Deck("a"), b: new Deck("b") };
+
+/**
+ * The echo used by the echo-out bridge: both decks' echo sends feed one delay
+ * with feedback (thinned out top and bottom so the repeats sit back), into
+ * the master. Silent unless a send is turned up.
+ */
+let echo = null;
+export function echoBus(ctx = audioContext()) {
+  if (!echo) {
+    const input = ctx.createGain();
+    const delay = ctx.createDelay(4);
+    const feedback = ctx.createGain();
+    const low = ctx.createBiquadFilter();
+    low.type = "highpass";
+    low.frequency.value = 250;
+    const high = ctx.createBiquadFilter();
+    high.type = "lowpass";
+    high.frequency.value = 6000;
+    const out = ctx.createGain();
+    input.connect(delay);
+    delay.connect(low).connect(high);
+    high.connect(feedback).connect(delay);
+    high.connect(out).connect(master);
+    feedback.gain.value = 0.55;
+    echo = { input, delay, feedback, out };
+  }
+  return echo.input;
+}
+
+/** The echo's controls: delay time (s), feedback (0–1). */
+export function echoControls() {
+  echoBus();
+  return echo;
+}
 
 /**
  * The crossfader's position, shared by the slider and the transition

@@ -156,3 +156,24 @@ test("sniff: FLAC, M4A and unknown files", () => {
   assert.equal(sniff(m4a).format, "M4A");
   assert.equal(sniff(new Uint8Array(10)).format, "Audio");
 });
+
+test("streamed MP3: chunks in, a valid 320 kbps file out, the right length", async () => {
+  const { Mp3Stream } = await import("./mp3stream.js");
+  const sr = 44100;
+  const s = new Mp3Stream(sr, 320);
+  for (let k = 0; k < 30; k++) {
+    const l = new Float32Array(4410).map((_, i) => 0.3 * Math.sin((2 * Math.PI * 440 * (k * 4410 + i)) / sr));
+    s.push(l, l);
+  }
+  s.silence(sr);
+  const bytes = s.finish({ title: "Set" });
+  assert.equal(String.fromCharCode(...bytes.slice(0, 3)), "ID3");
+  // First MP3 frame after the tag: sync bits set.
+  const tagSize = (bytes[6] << 21) | (bytes[7] << 14) | (bytes[8] << 7) | bytes[9];
+  const f = 10 + tagSize;
+  assert.equal(bytes[f], 0xff);
+  assert.equal(bytes[f + 1] & 0xe0, 0xe0);
+  assert.equal(s.frames, 30 * 4410 + sr);
+  const seconds = s.frames / sr;
+  assert.ok(Math.abs(s.bytes / ((320000 / 8) * seconds) - 1) < 0.05, `${s.bytes} bytes for ${seconds} s`);
+});
