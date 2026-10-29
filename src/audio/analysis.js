@@ -63,6 +63,16 @@ export function analyzeBuffer(buffer) {
 }
 
 /**
+ * The sung pitch of a voice recording, every 10 ms (its own worker, so it
+ * never waits behind Files or Auto DJ).
+ * @param {Float32Array} samples  mono (handed over, not copied)
+ * @returns {Promise<{ hop: number, start: number, f0: Float32Array }>}
+ */
+export function pitchTrack(samples, sampleRate) {
+  return run("pitch", { type: "pitch", samples, sampleRate }, [samples.buffer]);
+}
+
+/**
  * Does the tempo stay the same all the way through? (Read in sections.)
  * @returns {Promise<{ level: "steady"|"slight"|"wanders"|"unknown", min: number|null, max: number|null, percent: number }>}
  */

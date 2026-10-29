@@ -27,6 +27,10 @@ import {
   setFormat,
   setEven,
   save,
+  pitchView,
+  tuneKeyInfo,
+  setTuneKey,
+  ALL_KEYS,
 } from "../audio/booth.js";
 
 /**
@@ -255,7 +259,7 @@ export function BoothPanel() {
                 Stop
               </button>
             ) : (
-              <button type="button" className="btn btn-gold" onClick={play} disabled={busy} data-testid="booth-play">
+              <button type="button" className="btn btn-gold" onClick={() => play()} disabled={busy} data-testid="booth-play">
                 ▶ Play with the beat
               </button>
             )}
@@ -276,8 +280,9 @@ export function BoothPanel() {
               ))}
             </div>
           </div>
+          <TuneBlock take={take} disabled={booth.mode === "saving" || recording} />
           <div className="booth-knobs">
-            {KNOBS.map((k) => (
+            {KNOBS.filter((k) => k.id !== "tune" && k.id !== "speed").map((k) => (
               <label key={k.id} className="booth-knob" title={k.help}>
                 <span>
                   {k.label} <b>{booth.knobs[k.id]}{k.unit}</b>
@@ -365,6 +370,166 @@ export function BoothPanel() {
         </p>
       )}
     </section>
+  );
+}
+
+/** One knob (slider with its value and what it does). */
+function Knob({ k, disabled }) {
+  return (
+    <label className="booth-knob" title={k.help}>
+      <span>
+        {k.label} <b>{booth.knobs[k.id]}{k.unit}</b>
+      </span>
+      <input
+        type="range"
+        min={k.min}
+        max={k.max}
+        step={k.step}
+        value={booth.knobs[k.id]}
+        onChange={(e) => setKnob(k.id, e.target.value)}
+        disabled={disabled}
+        data-testid={`knob-${k.id}`}
+      />
+      <small className="muted">{k.help}</small>
+    </label>
+  );
+}
+
+/**
+ * Tune: your pitch line over the notes (as sung, and as it will sound), how
+ * in tune the take is, and the Tune / Speed / key controls.
+ */
+function TuneBlock({ take, disabled }) {
+  const view = pitchView(take);
+  const key = tuneKeyInfo();
+  const beatCode = booth.beat?.camelot;
+  return (
+    <div className="booth-tune" data-testid="booth-tune">
+      <div className="booth-tune-head">
+        <b>Pitch</b>
+        <label className="fsmall">
+          <span>Key</span>
+          <select value={booth.tuneKey} onChange={(e) => setTuneKey(e.target.value)} disabled={disabled} data-testid="tune-key">
+            <option value="beat">The beat's key{beatCode ? ` (${beatCode})` : ""}</option>
+            <option value="chromatic">Any note (chromatic)</option>
+            {ALL_KEYS.map((k) => (
+              <option key={k.code} value={k.code}>
+                {k.code} · {k.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <span className="muted fnote">Notes go to the nearest note; only when you're in between does the key decide.</span>
+      </div>
+      {take.pitchStatus === "reading" && <p className="fnote">Reading your pitch…</p>}
+      {take.pitchStatus === "failed" && <p className="fnote">Couldn't read the pitch of this take.</p>}
+      {view && (
+        <>
+          <PitchLine view={view} />
+          <p className="booth-stats" data-testid="tune-stats">
+            {view.before ? (
+              <>
+                As sung: notes average <b>{Math.round(view.before.meanCents)} cents</b> from the note, {Math.round(view.before.within25 * 100)}% within 25
+                cents
+                {view.after && (
+                  <>
+                    {" "}
+                    → tuned: <b>{Math.round(view.after.meanCents)} cents</b>, {Math.round(view.after.within25 * 100)}% within 25
+                  </>
+                )}
+                . <span className="muted">Within 25 cents usually sounds in tune in a mix. Vibrato isn't counted against you.</span>
+              </>
+            ) : (
+              "No clear sung notes found in this take."
+            )}
+          </p>
+        </>
+      )}
+      <div className="booth-knobs">
+        {KNOBS.filter((k) => k.id === "tune" || k.id === "speed").map((k) => (
+          <Knob key={k.id} k={k} disabled={disabled || take.pitchStatus !== "ready"} />
+        ))}
+      </div>
+      <span className="sr-only">{key.name}</span>
+    </div>
+  );
+}
+
+/** The pitch line: silver as sung, gold as tuned, over the notes of the key. */
+function PitchLine({ view }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    const W = canvas.clientWidth || 600;
+    const H = 170;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+    const g = canvas.getContext("2d");
+    g.scale(dpr, dpr);
+    g.clearRect(0, 0, W, H);
+    const pts = view.points.filter(Boolean);
+    if (!pts.length) return;
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const p of pts) {
+      lo = Math.min(lo, p.m, p.c);
+      hi = Math.max(hi, p.m, p.c);
+    }
+    lo = Math.floor(lo) - 1;
+    hi = Math.ceil(hi) + 1;
+    const t0 = pts[0].t;
+    const t1 = pts[pts.length - 1].t;
+    const left = 34;
+    const x = (t) => left + ((t - t0) / Math.max(0.001, t1 - t0)) * (W - left - 6);
+    const y = (m) => 6 + ((hi - m) / (hi - lo)) * (H - 22);
+    const NAMES = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"];
+    g.font = "10px system-ui, sans-serif";
+    for (let n = lo; n <= hi; n++) {
+      const pc = ((n % 12) + 12) % 12;
+      const inKey = !view.scale || view.scale.includes(pc);
+      g.strokeStyle = inKey ? "rgba(212,166,74,0.28)" : "rgba(255,255,255,0.06)";
+      g.lineWidth = 1;
+      g.beginPath();
+      g.moveTo(left, y(n));
+      g.lineTo(W - 4, y(n));
+      g.stroke();
+      if (inKey && hi - lo <= 30) {
+        g.fillStyle = "rgba(201,195,184,0.75)";
+        g.fillText(`${NAMES[pc]}${Math.floor(n / 12) - 1}`, 2, y(n) + 3);
+      }
+    }
+    const line = (field, color, width) => {
+      g.strokeStyle = color;
+      g.lineWidth = width;
+      g.beginPath();
+      let pen = false;
+      for (const p of view.points) {
+        if (!p) {
+          pen = false;
+          continue;
+        }
+        if (pen) g.lineTo(x(p.t), y(p[field]));
+        else g.moveTo(x(p.t), y(p[field]));
+        pen = true;
+      }
+      g.stroke();
+    };
+    line("m", "rgba(220,220,220,0.7)", 1.2);
+    if (view.after) line("c", "#f3cf7a", 1.8);
+    g.fillStyle = "rgba(141,135,123,1)";
+    g.fillText(formatTime(t0), left, H - 3);
+    const end = formatTime(t1);
+    g.fillText(end, W - 6 - g.measureText(end).width, H - 3);
+  });
+  return (
+    <>
+      <canvas ref={ref} className="booth-pitch" aria-label="Your pitch line over the notes" data-testid="pitch-line" />
+      <p className="booth-legend">
+        <span className="lg-sung">━</span> as sung <span className="lg-tuned">━</span> tuned
+      </p>
+    </>
   );
 }
 

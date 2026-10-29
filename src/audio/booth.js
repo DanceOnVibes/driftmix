@@ -8,18 +8,22 @@
  *    sound with the audio clock, so we know exactly when each sample was
  *    heard. Together with the device's delay (measured with clicks, or
  *    estimated), every take is lined up with the beat.
- *  - Clean-up that needs exact timing (rumble cut, gate, compression) is done
+ *  - Pitch: read in the background after each take; "Tune" moves notes
+ *    towards the right pitch as much and as slowly as you choose.
+ *  - Clean-up that needs exact timing (rumble cut, tune, gate, compression) is done
  *    on the recording itself; tone, reverb and echo run live so knobs are
  *    heard straight away. Saving renders exactly the same chain.
  * Nothing leaves the device.
  */
 import { audioContext } from "./engine.js";
-import { analyzeBuffer } from "./analysis.js";
+import { analyzeBuffer, pitchTrack } from "./analysis.js";
 import { files, encodeInWorker } from "./files.js";
 import { clickTrain, findClickDelay, alignTake, joinChunks, blip } from "../lib/booth/latency.js";
 import { gate, gateSettings, noiseFloorDb, makeImpulse, highpass, compress } from "../lib/booth/voice.js";
 import { PRESETS, chainParams, autoVocalDb } from "../lib/booth/presets.js";
 import { integratedLufs } from "../lib/files/loudness.js";
+import { correctionCurve, shiftPitch, scaleFor, pitchStats } from "../lib/booth/pitch.js";
+import { camelot, keyName } from "../lib/camelot.js";
 import { safeName } from "../lib/files/naming.js";
 
 const SAVED = "driftmix.booth.v1";
@@ -53,6 +57,7 @@ export const booth = {
   selected: null,
   preset: saved.preset ?? "natural",
   knobs: { ...PRESETS.natural.knobs, ...(saved.knobs || {}) },
+  tuneKey: saved.tuneKey ?? "beat", // "beat" | "chromatic" | a Camelot code
   vocalDb: 0, // on top of the automatic level
   beatDb: 0,
   format: saved.format ?? "mp3",
@@ -71,8 +76,8 @@ export const booth = {
 
 function persist() {
   try {
-    const { countIn, latency, nudgeMs, preset, knobs, format, even } = booth;
-    localStorage.setItem(SAVED, JSON.stringify({ countIn, latency, nudgeMs, preset, knobs, format, even }));
+    const { countIn, latency, nudgeMs, preset, knobs, format, even, tuneKey } = booth;
+    localStorage.setItem(SAVED, JSON.stringify({ countIn, latency, nudgeMs, preset, knobs, format, even, tuneKey }));
   } catch {
     /* private window: fine */
   }
@@ -448,6 +453,8 @@ export async function stopRecording() {
     clipped: booth.clipped,
     floorDb: noiseFloorDb(rec.samples, ctx.sampleRate),
     cache: null,
+    pitch: null,
+    pitchStatus: "reading",
   };
   let peak = 0;
   for (let i = 0; i < take.raw.length; i++) peak = Math.max(peak, Math.abs(take.raw[i]));
@@ -456,6 +463,7 @@ export async function stopRecording() {
   if (take.seconds < 0.5) return say("That take was too short to keep.");
   booth.takes.push(take);
   booth.selected = take.id;
+  void readPitch(take);
   const tips = [];
   if (take.clipped) tips.push("Too loud in places (it hit the top): move back a little or turn the mic down");
   else if (take.peakDb < -30) tips.push("Very quiet: move closer to the mic, or turn it up");
@@ -482,21 +490,98 @@ export function clearTakes() {
   booth.emit();
 }
 
-const selectedTake = () => booth.takes.find((t) => t.id === booth.selected) || null;
+export const selectedTake = () => booth.takes.find((t) => t.id === booth.selected) || null;
+
+// ---- pitch -------------------------------------------------------------------------
+
+/** Read the sung pitch of a take in the background (a few seconds for a long take). */
+async function readPitch(take) {
+  try {
+    take.pitch = await pitchTrack(highpass(take.raw, take.sampleRate, 80), take.sampleRate);
+    take.pitchStatus = "ready";
+    take.cache = null;
+  } catch {
+    take.pitchStatus = "failed";
+  }
+  booth.emit();
+}
+
+/** Camelot code → { root, mode }. */
+function keyOf(code) {
+  for (let root = 0; root < 12; root++) for (const mode of ["minor", "major"]) if (camelot(root, mode) === code) return { root, mode };
+  return null;
+}
+
+/** All 24 keys for the key menu: { code, name }. */
+export const ALL_KEYS = Array.from({ length: 24 }, (_, i) => {
+  const number = (i >> 1) + 1;
+  const code = `${number}${i % 2 ? "B" : "A"}`;
+  const k = keyOf(code);
+  return { code, name: keyName(k.root, k.mode) };
+});
+
+/** The key notes are tuned to (null = any note). */
+export function tuneKeyInfo() {
+  const code = booth.tuneKey === "beat" ? booth.beat?.camelot : booth.tuneKey === "chromatic" ? null : booth.tuneKey;
+  const k = code ? keyOf(code) : null;
+  return k ? { code, name: keyName(k.root, k.mode), scale: scaleFor(k.root, k.mode) } : { code: null, name: "any note", scale: null };
+}
+
+export function setTuneKey(value) {
+  booth.tuneKey = value;
+  persist();
+  refreshLive(true);
+  booth.emit();
+}
+
+function tuneCurve(take) {
+  if (!take.pitch || !(booth.knobs.tune > 0)) return null;
+  return correctionCurve(take.pitch, { amount: booth.knobs.tune, speedMs: booth.knobs.speed, scale: tuneKeyInfo().scale });
+}
+
+/**
+ * What to draw and say about a take's pitch: the line as sung and as tuned
+ * (MIDI note numbers, in beat time), and how in tune it is before and after.
+ */
+export function pitchView(take) {
+  if (!take?.pitch) return null;
+  const tr = take.pitch;
+  const curve = tuneCurve(take);
+  const { scale, name } = tuneKeyInfo();
+  const offset = take.beatStartTime + delaySeconds() - take.recordStart; // raw seconds → beat seconds
+  const step = Math.max(1, Math.ceil(tr.f0.length / 900));
+  const points = [];
+  for (let i = 0; i < tr.f0.length; i += step) {
+    const hz = tr.f0[i];
+    const t = take.from + tr.start + i * tr.hop - offset;
+    if (t < take.from) continue;
+    if (!hz) {
+      points.push(null);
+      continue;
+    }
+    const m = 69 + 12 * Math.log2(hz / 440);
+    points.push({ t, m, c: m + (curve ? curve[i] : 0) });
+  }
+  const tuned = curve ? { ...tr, f0: tr.f0.map((hz, i) => (hz ? hz * 2 ** (curve[i] / 12) : 0)) } : null;
+  return { points, scale, keyName: name, before: pitchStats(tr, scale), after: tuned ? pitchStats(tuned, scale) : null };
+}
 
 function invalidateTakes() {
   for (const t of booth.takes) t.cache = null;
 }
 
 /**
- * The take, lined up with the beat and cleaned (rumble cut, gate, smooth).
+ * The take, cleaned (rumble cut, tune, gate, smooth) and lined up with the beat.
  * Sample 0 sits on the beat at `take.from`. Cached until a setting changes.
  */
 export function takeVoice(take) {
-  const key = `${delaySeconds()}|${booth.knobs.clean}|${booth.knobs.squeeze}`;
+  const k = booth.knobs;
+  const key = `${delaySeconds()}|${k.clean}|${k.squeeze}|${take.pitch ? `${k.tune}|${k.speed}|${tuneKeyInfo().code}` : "-"}`;
   if (take.cache?.key === key) return take.cache;
-  let v = alignTake(take.raw, take.sampleRate, { recordStart: take.recordStart, beatStartTime: take.beatStartTime, latency: delaySeconds() });
-  v = highpass(v, take.sampleRate, 80);
+  let v = highpass(take.raw, take.sampleRate, 80);
+  const curve = tuneCurve(take);
+  if (curve) v = shiftPitch(v, take.sampleRate, take.pitch, curve);
+  v = alignTake(v, take.sampleRate, { recordStart: take.recordStart, beatStartTime: take.beatStartTime, latency: delaySeconds() });
   const g = gateSettings(booth.knobs.clean, take.floorDb);
   if (g) v = gate(v, take.sampleRate, g);
   const comp = chainParams(booth.knobs).comp;
@@ -573,8 +658,8 @@ function buildChain(ctx, destination) {
 
 let live = null;
 
-/** Play the selected take with the beat, through the effects. */
-export function play() {
+/** Play the selected take with the beat, through the effects (from `at`, beat seconds). */
+export function play(at = null) {
   const take = selectedTake();
   if (!take || !booth.beat || booth.mode !== "idle") return;
   const ctx = audioContext();
@@ -590,17 +675,18 @@ export function play() {
   const vocal = ctx.createBufferSource();
   vocal.buffer = vb;
   vocal.connect(chain.vocalIn);
-  beat.start(when, take.from);
-  vocal.start(when);
+  const pos = Math.max(take.from, Math.min(at ?? take.from, take.from + voice.length / take.sampleRate));
+  beat.start(when, pos);
+  vocal.start(when, pos - take.from);
   // Stop a couple of seconds after the take ends (or at the end of the beat).
-  const end = Math.min(booth.beat.buffer.duration - take.from, voice.length / take.sampleRate + 2);
-  beat.stop(when + end);
+  const end = Math.min(booth.beat.buffer.duration - pos, take.from + voice.length / take.sampleRate + 2 - pos);
+  beat.stop(when + Math.max(0.1, end));
   beat.onended = () => {
     if (live?.beat === beat) stopPlayback();
   };
   live = { beat, vocal, chain, autoDb };
   booth.mode = "playing";
-  tick(when, take.from);
+  tick(when, pos);
   booth.emit();
 }
 
@@ -622,12 +708,19 @@ export function stopPlayback() {
   booth.emit();
 }
 
+let rebuildTimer = null;
 function refreshLive(rebuildVoice) {
   if (!live) return;
   if (rebuildVoice) {
-    // Clean / Smooth change the recording itself: restart from the start of the take.
-    stopPlayback();
-    play();
+    // Tune, Clean and Smooth change the recording itself: once the slider
+    // settles, carry on playing from the same spot with the new version.
+    clearTimeout(rebuildTimer);
+    rebuildTimer = setTimeout(() => {
+      if (!live) return;
+      const at = booth.clock;
+      stopPlayback();
+      play(at);
+    }, 250);
     return;
   }
   live.chain.update(live.autoDb);
@@ -637,7 +730,7 @@ export function setKnob(id, value) {
   booth.knobs = { ...booth.knobs, [id]: Number(value) };
   booth.preset = "custom";
   persist();
-  refreshLive(id === "clean" || id === "squeeze");
+  refreshLive(id === "clean" || id === "squeeze" || id === "tune" || id === "speed");
   booth.emit();
 }
 
