@@ -6,8 +6,9 @@
  * How it plays out:
  *  1. Ready: as soon as both tracks have a tempo, a stretched copy of the
  *     next track is made in the background at the playing tempo (key lock),
- *     so pressing Mix is instant. A key fix (±1/±2 semitones) is a pitch
- *     shift on top, with the stretch making up the tempo.
+ *     so pressing Mix is instant. A key fix (±1/±2 semitones) is built into
+ *     that copy too, so the browser never changes speed or pitch itself
+ *     (its quick method adds a faint grit).
  *  2. On the bar: the next track starts exactly on the playing track's next
  *     bar line, on its own beat, bass cut.
  *  3. Blend: equal-power fade (overall loudness stays even). Half way, the
@@ -15,17 +16,21 @@
  *     mids (where vocals live), so two voices don't talk over each other.
  *     Just before it starts, tempo and beats are re-measured in the parts
  *     about to play, and the start points snap to the real beats.
- *  4. Done: the old track stops, the crossfader moves to the new deck.
+ *  4. Done: the old track stops, the crossfader moves to the new deck. The
+ *     tiny speed trim from step 3 is then folded into a fresh copy, swapped
+ *     in on the next phrase line ("polish"), so nothing plays sped up by the
+ *     browser for long.
  */
 import { audioContext, decks, crossfader, setCrossfader, BASS_CUT, MID_CUT, masterNode, echoControls } from "./engine.js";
 import { stretchBuffer, localGrid } from "./analysis.js";
 import { planTransition, refinePlan, blendCurves } from "../lib/transition.js";
-import { planBridge } from "../lib/bridge.js";
+import { planBridge, settlePoint } from "../lib/bridge.js";
 import { tempoMatch, keyMatch, keyFixes } from "../lib/match.js";
 
 /** What the transition is doing, for the screen. */
 export const mix = {
   state: { status: "idle" }, // idle | preparing | waiting | blending | done | error
+  autoPolish: true, // after a blend, swap in a clean copy (Auto DJ does its own)
   ready: null, // { id, tempo, status: "working" | "ready" | "failed" } for the next deck's stretched copy
   listeners: new Set(),
   set(patch) {
@@ -98,16 +103,20 @@ function round(x) {
   return Math.round(x * 1e6) / 1e6;
 }
 
-/** Make (or reuse) the next track's stretched copy. Resolves to an AudioBuffer, or null when no stretch is needed. */
-function prepare(next, tempo) {
+/**
+ * Make (or reuse) the next track's copy at `tempo` (track seconds per real
+ * second) with `semitones` built in. Resolves to an AudioBuffer, or null
+ * when the original will do.
+ */
+function prepare(next, tempo, semitones = 0) {
   const t = round(tempo);
-  if (prepared && prepared.source === next.buffer && prepared.tempo === t) return prepared.promise;
+  if (prepared && prepared.source === next.buffer && prepared.tempo === t && prepared.semitones === semitones) return prepared.promise;
   const source = next.buffer;
   mix.ready = { id: next.id, tempo: t, status: "working" };
   mix.emit();
   const promise =
-    Math.abs(t - 1) < 1e-5 ? Promise.resolve(null) : stretchBuffer(source, t, audioContext());
-  prepared = { source, tempo: t, promise };
+    Math.abs(t - 1) < 1e-5 && !semitones ? Promise.resolve(null) : stretchBuffer(source, t, audioContext(), semitones);
+  prepared = { source, tempo: t, semitones, promise };
   promise.then(
     () => {
       if (prepared?.promise !== promise) return;
@@ -158,8 +167,9 @@ export function warmUp({ bars, useFix }) {
   const tempo = tempoMatch(now.playingBpm, next.analysis.tempo.bpm);
   if (tempo.level === "red") return;
   const fix = keyFixFor(now, next);
-  const plan = settings(now, next, bars, useFix && fix ? fix.semitones : 0, tempo.factor);
-  void prepare(next, plan.stretchTempo).catch(() => {});
+  const semitones = useFix && fix ? fix.semitones : 0;
+  const plan = settings(now, next, bars, semitones, tempo.factor);
+  void prepare(next, plan.speed, semitones).catch(() => {});
 }
 
 // ---- running a transition ---------------------------------------------
@@ -189,7 +199,7 @@ export async function startTransition({ bars, useFix, phraseBars = 1 }) {
   mix.set({ status: "preparing", from: now.id, to: next.id, message: `Getting ${X} ready…` });
   let stretched;
   try {
-    stretched = await prepare(next, settings(now, next, bars, semitones, opts.factor).stretchTempo);
+    stretched = await prepare(next, settings(now, next, bars, semitones, opts.factor).speed, semitones);
   } catch {
     if (token === run) mix.set({ status: "error", message: `Couldn't prepare ${X}. Try loading it again.` });
     return;
@@ -229,8 +239,8 @@ export async function startTransition({ bars, useFix, phraseBars = 1 }) {
     nowLocal: trusted(nowLocal),
     nextLocal: trusted(nextLocal),
     factor: opts.factor,
-    prepared: planned.stretchTempo,
-    semitones,
+    prepared: planned.speed, // the copy already has the key shift built in
+    semitones: 0,
   });
   const ctx = audioContext();
   const when = ctx.currentTime + plan.startIn;
@@ -295,6 +305,7 @@ function finish() {
   next.resetEq();
   crossfader.locked = false;
   setCrossfader(next.id === "b" ? 1 : -1);
+  if (mix.autoPolish) void polish(next, next.speed, { heardBpm: next.heardBpm });
   const r = Math.round(plan.nextBpm * 10) / 10;
   const bpm = Number.isInteger(r) ? r : r.toFixed(1);
   mix.set({ status: "done", from: now.id, to: next.id, message: plan.nextBpm > 0 ? `Done. ${next.id.toUpperCase()} is playing at ${bpm} BPM.` : `Done. ${next.id.toUpperCase()} is playing.` });
@@ -318,6 +329,37 @@ export function cancelTransition(reason = "Transition stopped.") {
   crossfader.locked = false;
   setCrossfader(crossfader.position);
   mix.set({ status: "idle", message: reason });
+}
+
+// ---- polish: no browser speed changes left playing -------------------------
+
+const polishRun = { a: 0, b: 0 };
+
+/**
+ * Swap a playing deck to a clean copy at exactly `target` speed (track
+ * seconds per real second; 1 = its own tempo), with its key shift built in,
+ * on the next 8-bar phrase line at least 4 s ahead (and before `before`,
+ * track seconds). After it the browser plays the copy at normal speed.
+ * @returns {Promise<boolean>}  true when the swap is scheduled
+ */
+export async function polish(deck, target, { before = deck.duration, heardBpm = null } = {}) {
+  const t = deck.analysis.tempo;
+  if (!t || !deck.playing) return false;
+  if (Math.abs(deck.pitchRate - 1) < 1e-6 && Math.abs(deck.speed - target) < 1e-4) return false; // already clean
+  const token = ++polishRun[deck.id];
+  const buffer = deck.buffer;
+  const semitones = deck.semitones;
+  let copy = null;
+  try {
+    if (Math.abs(target - 1) > 1e-5 || semitones) copy = await stretchBuffer(buffer, target, audioContext(), semitones);
+  } catch {
+    return false;
+  }
+  if (token !== polishRun[deck.id] || deck.buffer !== buffer || !deck.playing || isActive() || deck.swapPending) return false;
+  const at = settlePoint({ bpm: t.bpm, firstBeat: t.firstBeat, position: deck.position, speed: deck.speed, duration: before });
+  if (at === null) return false;
+  const when = audioContext().currentTime + (at - deck.position) / deck.speed;
+  return deck.swapAt(when, { buffer: copy, stretchTempo: copy ? target : 1, pitchRate: 1, semitones, heardBpm });
 }
 
 // ---- the echo-out bridge -------------------------------------------------

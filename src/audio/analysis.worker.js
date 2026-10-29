@@ -9,6 +9,7 @@
  */
 import { analyzeTrack } from "../lib/analyze.js";
 import { timeStretch } from "../lib/stretch.js";
+import { retune } from "../lib/files/retune.js";
 import { fitLocalGrid } from "../lib/tempo.js";
 import { downsample } from "../lib/analyze.js";
 import { tempoSections, steadiness } from "../lib/steady.js";
@@ -30,8 +31,10 @@ self.onmessage = (event) => {
       const d = downsample(samples, sampleRate);
       self.postMessage({ id, result: fitLocalGrid(d.samples, d.sampleRate, bpm) });
     } else if (type === "stretch") {
-      const { channels, sampleRate, tempo } = event.data;
-      const out = timeStretch(channels, sampleRate, tempo);
+      // A key shift is built into the copy (stretch, then a clean resample),
+      // so it never goes through the browser's rough speed change.
+      const { channels, sampleRate, tempo, semitones = 0 } = event.data;
+      const out = semitones ? retune(channels, sampleRate, { tempo, semitones }) : timeStretch(channels, sampleRate, tempo);
       self.postMessage({ id, result: out }, out.map((c) => c.buffer));
     } else {
       const { samples, sampleRate } = event.data;

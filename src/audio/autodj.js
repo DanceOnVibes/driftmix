@@ -19,7 +19,7 @@
  */
 import { audioContext, decks, setCrossfader } from "./engine.js";
 import { analyzeBuffer, stretchBuffer } from "./analysis.js";
-import { mix, isActive, nowAndNext, transitionOptions, startTransition, cancelTransition, startBridge } from "./transition.js";
+import { mix, isActive, nowAndNext, transitionOptions, startTransition, cancelTransition, startBridge, polish } from "./transition.js";
 import { orderSet, orderJourney, fitsTempo, mixOutIn, mixOutPoint } from "../lib/setlist.js";
 import { chooseMix, settlePoint } from "../lib/bridge.js";
 import { tempoMatch, TEMPO_AMBER } from "../lib/match.js";
@@ -247,6 +247,7 @@ export async function startAutoDj() {
   decks.b.stop();
   autoDj.setBpm = setBpm;
   autoDj.on = true;
+  mix.autoPolish = false; // Auto DJ settles or polishes each track itself
   autoDj.onDeck = { a: null, b: null };
   const intro = setBpm ? `Set tempo ${fmt(setBpm)} BPM.` : "Tempo journey: every track settles to its own tempo after its blend.";
   autoDj.message = intro;
@@ -282,6 +283,7 @@ export async function startAutoDj() {
 export function stopAutoDj(message = "Auto DJ off. The music keeps playing; it's yours now.") {
   if (!autoDj.on) return;
   autoDj.on = false;
+  mix.autoPolish = true;
   clearInterval(timer);
   timer = null;
   autoDj.message = message;
@@ -366,39 +368,24 @@ function tick() {
   void queueAfter(skippedId, next);
 }
 
-// ---- tempo journey: settle to its own tempo ---------------------------------
-
-let settleRun = 0;
+// ---- after each blend: settle (journey) or polish (locked) ----------------
 
 /**
- * After a blend on a journey, the new track plays at the tempo it was matched
- * to. On the next phrase line (well before its own mix-out) it settles to its
- * own tempo: a copy at its own tempo (key shift kept) takes over seamlessly.
+ * After a blend the new track plays a prepared copy with a tiny speed trim.
+ * On the next phrase line (well before its own mix-out) it swaps to a clean
+ * copy: on a journey at its own tempo (it "settles"); with a locked tempo at
+ * exactly the set tempo. Key shifts stay built in either way.
  */
-async function settle(deck) {
-  if (!autoDj.on || !journey()) return;
+async function afterBlend(deck) {
+  if (!autoDj.on) return;
   const t = deck.analysis.tempo;
-  if (!t || Math.abs(deck.speed - 1) < 1e-4) return;
-  const token = ++settleRun;
-  const buffer = deck.buffer;
-  const pitch = deck.pitchRate;
-  let copy = null;
-  try {
-    if (Math.abs(pitch - 1) > 1e-6) copy = await stretchBuffer(buffer, 1 / pitch, audioContext());
-  } catch {
-    return;
-  }
-  if (token !== settleRun || !autoDj.on || deck.buffer !== buffer || !deck.playing || isActive()) return;
+  if (!t) return;
   const mixOut = mixOutPoint({ firstBeat: t.firstBeat, bpm: t.bpm, duration: deck.duration, bars: autoDj.bars }) ?? deck.duration;
-  const at = settlePoint({ bpm: t.bpm, firstBeat: t.firstBeat, position: deck.position, speed: deck.speed, duration: mixOut });
-  if (at === null) return;
-  const ctx = audioContext();
-  const when = ctx.currentTime + (at - deck.position) / deck.speed;
   const from = deck.playingBpm;
-  busy = true;
-  const ok = deck.swapAt(when, { buffer: copy, stretchTempo: copy ? 1 / pitch : 1, pitchRate: pitch, semitones: deck.semitones, heardBpm: null });
-  busy = false;
-  if (!ok) return;
+  const ok = journey()
+    ? await polish(deck, 1, { before: mixOut, heardBpm: null })
+    : await polish(deck, deck.speed, { before: mixOut, heardBpm: deck.heardBpm });
+  if (!ok || !journey() || Math.abs(from - t.bpm) < 0.05) return;
   const name = autoDj.tracks.find((x) => x.id === autoDj.onDeck[deck.id])?.name ?? "The track";
   autoDj.message = `${name} settles from ${fmt(from)} to its own ${fmt(t.bpm)} BPM on the next phrase.`;
   autoDj.emit();
@@ -415,7 +402,7 @@ mix.subscribe(() => {
   autoDj.onDeck[freeId] = null;
   lastNow = decks[mix.state.to];
   void queueAfter(playingTrack, decks[freeId]);
-  void settle(decks[mix.state.to]);
+  void afterBlend(decks[mix.state.to]);
 });
 
 // The DJ touching a deck hands control back.
