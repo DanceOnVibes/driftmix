@@ -119,13 +119,45 @@ let reading = Promise.resolve();
 export function addFiles(list) {
   const picked = [...list].filter((f) => f.type.startsWith("audio/") || AUDIO_NAME.test(f.name));
   for (const file of picked) {
-    const it = { id: String(nextId++), file, title: cleanTitle(file.name), status: "reading", info: null, analysis: null, duration: 0, output: null, progress: 0, note: "", targetBpm: null, semitones: 0, steady: null };
+    const it = { id: String(nextId++), file, title: cleanTitle(file.name), status: "reading", info: null, analysis: null, found: null, duration: 0, output: null, progress: 0, note: "", targetBpm: null, semitones: 0, steady: null };
     files.items.push(it);
     reading = reading.then(() => inspect(it));
   }
   clearZip();
   files.emit();
   return picked.length;
+}
+
+/**
+ * Put back a list kept on this device (see keep.js), in front of anything
+ * added meanwhile. Tracks read before come back ready; others are read again.
+ * Finished files aren't kept: they come back ready to convert.
+ * @param {{ file: File, title: string, targetBpm: number|null, semitones: number, info: object|null, analysis: object|null, found: object|null, duration: number, steady: object|null }[]} saved
+ */
+export function restoreItems(saved) {
+  const back = saved.map((s) => {
+    const it = {
+      id: String(nextId++),
+      file: s.file,
+      title: s.title,
+      status: s.analysis ? "ready" : "reading",
+      info: s.info ?? null,
+      analysis: s.analysis ?? null,
+      found: s.found ?? null,
+      duration: s.duration || 0,
+      output: null,
+      progress: 0,
+      note: "",
+      targetBpm: s.targetBpm ?? null,
+      semitones: s.semitones || 0,
+      steady: s.steady ?? null,
+    };
+    if (!it.analysis) reading = reading.then(() => inspect(it));
+    return it;
+  });
+  files.items = [...back, ...files.items];
+  files.emit();
+  return back.length;
 }
 
 async function inspect(it) {
@@ -140,6 +172,7 @@ async function inspect(it) {
     if (!it.info.channels) it.info.channels = buffer.numberOfChannels;
     if (!it.info.sampleRate) it.info.sampleRate = buffer.sampleRate;
     const result = await analyzeBuffer(buffer);
+    it.found = { tempo: result.tempo ?? null, key: result.key ?? null }; // the full reading, for Auto DJ
     it.analysis = {
       bpm: result.tempo?.bpm ?? null,
       bpmSure: Boolean(result.tempo?.sure),
@@ -208,11 +241,24 @@ function changed(it, emit = true) {
 
 /**
  * The Files list, ready to hand to Auto DJ: the original files (best sound,
- * no extra encoding), in list order, with the titles as edited here.
- * @returns {{ file: File, name: string }[]}
+ * no extra encoding), in list order, with the titles as edited here and the
+ * exact BPM and key shift set here (Auto DJ builds them into the audio when
+ * it loads the track, so it plays exactly as a converted file would).
+ * @returns {{ file: File, name: string, plan: { tempo: number, semitones: number }, found: object|null, duration: number }[]}
  */
 export function filesForAutoDj() {
-  return files.items.filter((it) => it.status !== "failed").map((it) => ({ file: it.file, name: it.title || cleanTitle(it.file.name) }));
+  return files.items
+    .filter((it) => it.status !== "failed")
+    .map((it) => {
+      const p = it.analysis ? planFor(it) : { tempo: 1, semitones: 0 };
+      return {
+        file: it.file,
+        name: it.title || cleanTitle(it.file.name),
+        plan: { tempo: p.tempo, semitones: p.semitones },
+        found: it.found ?? null,
+        duration: it.duration || 0,
+      };
+    });
 }
 
 export function removeItem(id) {

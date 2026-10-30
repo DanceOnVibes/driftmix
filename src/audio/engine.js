@@ -20,7 +20,7 @@
 import { computePeaks } from "../lib/peaks.js";
 import { crossfadeGains, clamp, pressCue } from "../lib/mixer.js";
 import { shiftCamelot } from "../lib/match.js";
-import { analyzeBuffer } from "./analysis.js";
+import { analyzeBuffer, stretchBuffer } from "./analysis.js";
 
 /** Smooth volume changes over ~15 ms so faders never click. */
 const SMOOTH = 0.015;
@@ -174,14 +174,24 @@ export class Deck {
    * Options (used by Auto DJ): `known` = tempo and key already read, so they
    * aren't read again; `byApp` = DriftMix is loading it, not the DJ.
    */
-  async load(file, { known = null, byApp = false } = {}) {
+  /**
+   * @param {File} file
+   * @param {{ known?: { tempo: object|null, key: object|null }|null, byApp?: boolean, retune?: { tempo: number, semitones: number }|null }} [o]
+   *   known: tempo and key already read (as the track will play);
+   *   retune: an exact tempo and key shift to build into the audio first
+   */
+  async load(file, { known = null, byApp = false, retune = null } = {}) {
     const ctx = this.ensureNodes();
     // If another track is dropped before this one finishes reading, the
     // newest one wins.
     const ticket = ++this.loadTicket;
     const bytes = await file.arrayBuffer();
-    const buffer = await ctx.decodeAudioData(bytes);
+    let buffer = await ctx.decodeAudioData(bytes);
     if (ticket !== this.loadTicket) return;
+    if (retune) {
+      buffer = await stretchBuffer(buffer, retune.tempo, ctx, retune.semitones);
+      if (ticket !== this.loadTicket) return;
+    }
     if (!byApp) this.touched();
     this.stop();
     const channels = [];

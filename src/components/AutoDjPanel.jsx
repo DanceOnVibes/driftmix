@@ -212,10 +212,32 @@ export function AutoDjPanel() {
                 <span className="row-name" title={t.name}>
                   {t.name}
                 </span>
-                <span className="row-bpm" title={t.tempo && !t.tempo.sure ? "Not fully sure: check by ear" : ""}>
+                <span
+                  className={`row-bpm${t.plan?.tempo !== 1 && t.tempo ? " row-set" : ""}`}
+                  title={
+                    t.plan?.tempo !== 1 && t.found?.tempo
+                      ? `Exact BPM from Files (the file reads ${fmt(t.found.tempo.bpm)})`
+                      : t.tempo && !t.tempo.sure
+                        ? "Not fully sure: check by ear"
+                        : ""
+                  }
+                  data-testid={`row-bpm-${i}`}
+                >
                   {t.tempo ? `${fmt(t.tempo.bpm)}${t.tempo.sure ? "" : "?"}` : "–"}
                 </span>
-                <span className="row-key" title={t.key && !t.key.sure ? (t.key.alt ? `Close call: maybe ${t.key.alt.camelot} (${t.key.alt.name})` : "Not fully sure: check by ear") : ""}>
+                <span
+                  className={`row-key${t.plan?.semitones && t.key ? " row-set" : ""}`}
+                  title={
+                    t.plan?.semitones && t.found?.key
+                      ? `Key shifted ${t.plan.semitones > 0 ? "+" : "−"}${Math.abs(t.plan.semitones)} in Files (the file is ${t.found.key.camelot})`
+                      : t.key && !t.key.sure
+                        ? t.key.alt
+                          ? `Close call: maybe ${t.key.alt.camelot} (${t.key.alt.name})`
+                          : "Not fully sure: check by ear"
+                        : ""
+                  }
+                  data-testid={`row-key-${i}`}
+                >
                   {t.key ? `${t.key.camelot}${t.key.sure ? "" : "?"}` : "–"}
                 </span>
                 <span className="row-time">{t.duration ? formatTime(t.duration) : ""}</span>

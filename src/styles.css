@@ -110,6 +110,7 @@ main { flex: 1; }
 .row-name { color: var(--silver); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .row-key { color: var(--gold-bright); font-weight: 700; }
 .row-time, .row-bpm { color: var(--text); }
+.row-set { text-decoration: underline dotted; text-underline-offset: 3px; }
 .row-badge { color: var(--gold); font-size: 0.8rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .row-tools { display: inline-flex; gap: 4px; }
 .row-tools button { appearance: none; width: 28px; height: 28px; border-radius: 6px; border: 1px solid var(--line); background: transparent; color: var(--text); cursor: pointer; }

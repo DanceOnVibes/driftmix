@@ -1,7 +1,7 @@
 // Exact BPM and key shift tests. Run with: npm test
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { retunePlan, resample, retune, shiftKeyName } from "./retune.js";
+import { retunePlan, resample, retune, shiftKeyName, retunedReading } from "./retune.js";
 import { synthTrack } from "../test-synth.js";
 import { analyzeTrack } from "../analyze.js";
 import { tempoSections, steadiness } from "../steady.js";
@@ -74,6 +74,25 @@ test("retune: a 130 BPM track in D minor (7A) comes out at exactly 128 BPM, +1 s
   const r = analyzeTrack(out, t.sampleRate);
   assert.ok(Math.abs(r.tempo.bpm - 128) <= 0.1, `reads ${r.tempo.bpm}`);
   assert.equal(r.key.camelot, "2A");
+});
+
+test("retuned reading: predicts what reading the retuned audio gives (Auto DJ skips a second read)", () => {
+  const t = synthTrack({ bpm: 130, root: 2, mode: "minor", seconds: 30, lead: 0.3 });
+  const found = analyzeTrack(t.samples, t.sampleRate);
+  const plan = retunePlan({ bpm: found.tempo.bpm, camelot: found.key.camelot }, { targetBpm: 128, semitones: 1 });
+  const [out] = retune([t.samples], t.sampleRate, plan);
+  const real = analyzeTrack(out, t.sampleRate);
+  const guess = retunedReading(found, plan);
+  assert.ok(Math.abs(guess.tempo.bpm - 128) < 1e-9, `tempo ${guess.tempo.bpm}`);
+  assert.ok(Math.abs(real.tempo.bpm - guess.tempo.bpm) <= 0.1, `real ${real.tempo.bpm}`);
+  const beat = 60 / 128;
+  const off = Math.abs(((real.tempo.firstBeat - guess.tempo.firstBeat) % beat + beat * 1.5) % beat - beat / 2);
+  assert.ok(off < 0.015, `first beat off by ${(off * 1000).toFixed(1)} ms`);
+  assert.equal(guess.key.camelot, real.key.camelot);
+  assert.equal(guess.key.name, real.key.name);
+  assert.equal(guess.key.root, 3);
+  // Nothing asked: the reading is untouched.
+  assert.deepEqual(retunedReading(found, {}), { tempo: { ...found.tempo }, key: found.key });
 });
 
 test("retune: tempo only keeps the key", () => {

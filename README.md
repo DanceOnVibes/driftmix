@@ -33,7 +33,9 @@ Built under DanceOnVibes Limited. Free and open source under the AGPL-3.0.
 - **Mid (vocal) swap:** alongside the bass swap, the incoming track's mids (≈400 Hz–3.5 kHz, where vocals sit) are dipped 18 dB until half way, so two voices don't talk over each other; you hear its groove first, as a hint.
 - **Set tempo:** Auto DJ locks the set to the first track's tempo or one you pick (120–150); skipped tracks say exactly why.
 - **Files:** MP3 (LAME via lamejs, 128–320 kbps) or WAV (16/24-bit), sample rate (original, 44.1 or 48 kHz, using the browser's own resampler), stereo or mono, titles and tags (ID3v2.3 in MP3; LIST/INFO + id3 chunk in WAV) with BPM, key, Camelot, cover art, copyright and a comment, loudness levelled to −14 or −9 LUFS (BS.1770 meter, peaks kept under −1 dB, no limiter), silence trimmed, smart file names, download one, all (zip) or share on a phone.
-- **Privacy:** tracks are read from the computer with the browser's file reader and decoded in the page. Nothing is uploaded.
+- **Files → Auto DJ:** "Send to Auto DJ" carries each track's title, exact BPM and key shift. Auto DJ builds them into the audio as it loads the track (the same stretch and resample as Convert), so the decks play it exactly as set; sending again brings the playlist up to date instead of doubling it.
+- **Kept after a refresh:** the Files list and the Auto DJ playlist (tracks, titles, exact BPM, key shifts, readings and Auto DJ settings) are kept in the browser's own storage (IndexedDB) on this device, each track stored once, and put back when the page opens. Clearing a list removes its tracks from storage. Converted files aren't kept.
+- **Privacy:** tracks are read from the computer with the browser's file reader and decoded in the page. Nothing is uploaded; kept lists stay in this browser on this device.
 - **Hosting:** Cloudflare builds it (`npm install && npm run build`) and serves the `dist` folder. Branches get a preview link.
 
 ## Where things live
@@ -61,6 +63,7 @@ Built under DanceOnVibes Limited. Free and open source under the AGPL-3.0.
 | `src/audio/autodj.js` | Runs the Auto DJ set: reads tracks, loads decks, triggers each mix |
 | `src/lib/setlist.js` | Set order (flowing keys, tempo lock) and when to mix out |
 | `src/audio/files.js`, `src/audio/files.worker.js` | Files: reading, resampling, converting in the background |
+| `src/audio/keep.js` | Keeps the Files list and Auto DJ playlist on this device after a refresh |
 | `src/lib/files/` | WAV and MP3 writers, ID3 tags, zip, loudness meter, silence trim, names, format sniffing (+ tests) |
 | `src/vendor/lame.js` | lamejs (LAME MP3 encoder), LGPL — see `LAME-LICENSE` |
 | `src/lib/match.js` | Match light rules: tempo and key verdicts, fix suggestions |
