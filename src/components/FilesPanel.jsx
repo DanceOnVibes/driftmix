@@ -307,8 +307,11 @@ export function FilesPanel() {
               type="button"
               className="btn btn-ghost"
               onClick={() => {
-                const n = addTracks(filesForAutoDj());
-                files.message = `${n} track${n === 1 ? "" : "s"} sent to Auto DJ.`;
+                const { added, updated } = addTracks(filesForAutoDj());
+                const plural = (n) => `${n} track${n === 1 ? "" : "s"}`;
+                files.message = [added ? `${plural(added)} sent to Auto DJ.` : "", updated ? `${plural(updated)} already there, now up to date with your BPM, key and titles.` : ""]
+                  .filter(Boolean)
+                  .join(" ") || "Nothing new to send.";
                 files.emit();
                 document.getElementById("autodj")?.scrollIntoView({ behavior: "smooth" });
               }}

@@ -23,11 +23,16 @@ import { mix, isActive, nowAndNext, transitionOptions, startTransition, cancelTr
 import { orderSet, orderJourney, fitsTempo, mixOutIn, mixOutPoint } from "../lib/setlist.js";
 import { chooseMix, settlePoint } from "../lib/bridge.js";
 import { tempoMatch, TEMPO_AMBER } from "../lib/match.js";
+import { retunedReading } from "../lib/files/retune.js";
 
 const AUDIO_NAME = /\.(mp3|wav|flac|aiff?|m4a|aac|ogg|opus)$/i;
 
 export const autoDj = {
-  /** @type {{ id: string, file: File, name: string, status: "reading"|"ready"|"failed", tempo: object|null, key: object|null, duration: number }[]} */
+  /**
+   * tempo, key, duration: as the track will play (with any exact BPM and key
+   * shift from Files built in); found, sourceDuration: as the file reads.
+   * @type {{ id: string, file: File, name: string, status: "reading"|"ready"|"failed", tempo: object|null, key: object|null, duration: number, found: object|null, sourceDuration: number, plan: { tempo: number, semitones: number } }[]}
+   */
   tracks: [],
   on: false,
   bars: 16,
@@ -53,39 +58,108 @@ let busy = false; // Auto DJ is loading or starting something itself
 
 // ---- the playlist ------------------------------------------------------
 
+const NO_PLAN = { tempo: 1, semitones: 0 };
+const planned = (plan) => Boolean(plan) && (plan.tempo !== 1 || plan.semitones !== 0);
+
 /**
  * Add tracks to the playlist.
- * @param {Iterable<File | { file: File, name: string }>} fileList  files, or files with a title (from Files)
+ * @param {Iterable<File | { file: File, name: string, plan?: object, found?: object|null, duration?: number }>} fileList
+ *   files, or (from Files) files with a title, the exact BPM and key shift
+ *   set there, and the reading Files already made
+ * @returns {{ added: number, updated: number }} updated: already there, brought up to date (sent from Files again)
  */
 export function addTracks(fileList) {
   const entries = [...fileList].map((f) => (f instanceof Blob ? { file: f, name: f.name.replace(/\.[^.]+$/, "") } : f));
-  // Audio only, and each file once (sending from Files twice doesn't double up).
-  const files = entries.filter(
-    ({ file }) => (file.type.startsWith("audio/") || AUDIO_NAME.test(file.name)) && !autoDj.tracks.some((t) => t.file === file),
-  );
-  for (const { file, name } of files) {
-    const track = { id: String(nextId++), file, name, status: "reading", tempo: null, key: null, duration: 0 };
+  let added = 0;
+  let updated = 0;
+  for (const entry of entries) {
+    const { file } = entry;
+    if (!(file.type.startsWith("audio/") || AUDIO_NAME.test(file.name))) continue;
+    // Each file once: sending from Files again brings the title, BPM and key
+    // up to date instead of doubling up (not for the two tracks on the decks).
+    const had = autoDj.tracks.find((t) => t.file === file);
+    if (had) {
+      if (isLive(had.id) || !entry.plan) continue;
+      had.name = entry.name ?? had.name;
+      had.plan = entry.plan;
+      if (!had.found && entry.found) {
+        had.found = entry.found;
+        had.sourceDuration = entry.duration || had.sourceDuration;
+      }
+      if (had.found) applyPlan(had);
+      updated++;
+      continue;
+    }
+    const track = {
+      id: String(nextId++),
+      file,
+      name: entry.name ?? file.name.replace(/\.[^.]+$/, ""),
+      status: "reading",
+      tempo: null,
+      key: null,
+      duration: 0,
+      found: entry.found ?? null,
+      sourceDuration: entry.duration || 0,
+      plan: entry.plan ?? NO_PLAN,
+    };
     autoDj.tracks.push(track);
-    reading = reading.then(() => readTrack(track));
+    added++;
+    // Already read in Files: ready straight away. Otherwise read it here.
+    if (track.found && track.sourceDuration) applyPlan(track);
+    else reading = reading.then(() => readTrack(track));
   }
   autoDj.emit();
-  return files.length;
+  return { added, updated };
+}
+
+/** Tempo, key and length as the track will play, from the reading and the plan. */
+function applyPlan(track) {
+  const r = retunedReading(track.found, track.plan);
+  track.tempo = r.tempo;
+  track.key = r.key;
+  track.duration = track.sourceDuration / (track.plan.tempo || 1);
+  track.status = "ready";
 }
 
 async function readTrack(track) {
   if (!autoDj.tracks.includes(track)) return;
   try {
     const buffer = await audioContext().decodeAudioData(await track.file.arrayBuffer());
-    track.duration = buffer.duration;
+    track.sourceDuration = buffer.duration;
     const result = await analyzeBuffer(buffer);
-    track.tempo = result.tempo;
-    track.key = result.key;
-    track.status = "ready";
+    track.found = { tempo: result.tempo ?? null, key: result.key ?? null };
+    applyPlan(track);
   } catch {
     track.status = "failed";
   }
   autoDj.emit();
 }
+
+/**
+ * Put back a playlist kept on this device (see keep.js), in front of
+ * anything added meanwhile, with the settings it had.
+ * @param {{ tracks: { file: File, name: string, plan: object, found: object|null, duration: number }[], settings?: object }} saved
+ */
+export function restoreTracks({ tracks, settings }) {
+  const added = [];
+  for (const s of tracks) {
+    if (autoDj.tracks.some((t) => t.file === s.file)) continue;
+    const track = { id: String(nextId++), file: s.file, name: s.name, status: "reading", tempo: null, key: null, duration: 0, found: s.found ?? null, sourceDuration: s.duration || 0, plan: s.plan ?? NO_PLAN };
+    if (track.found && track.sourceDuration) applyPlan(track);
+    else reading = reading.then(() => readTrack(track));
+    added.push(track);
+  }
+  autoDj.tracks = [...added, ...autoDj.tracks];
+  if (settings && !autoDj.on) {
+    if (settings.tempoChoice !== undefined) autoDj.tempoChoice = settings.tempoChoice;
+    if (BAR_OK(settings.bars)) autoDj.bars = settings.bars;
+    if (typeof settings.bridge === "boolean") autoDj.bridge = settings.bridge;
+  }
+  autoDj.emit();
+  return added.length;
+}
+
+const BAR_OK = (n) => Number.isInteger(n) && n > 0 && n <= 64;
 
 const isLive = (id) => autoDj.on && (autoDj.onDeck.a === id || autoDj.onDeck.b === id);
 
@@ -211,7 +285,10 @@ function nextPlayable(afterId) {
 async function loadOnto(deck, track) {
   busy = true;
   try {
-    await deck.load(track.file, { known: { tempo: track.tempo, key: track.key }, byApp: true });
+    // An exact BPM or key shift from Files is built into the audio as it
+    // loads (the same clean process as Convert), so the deck plays the track
+    // exactly as set, and no later step has to change its speed or key.
+    await deck.load(track.file, { known: { tempo: track.tempo, key: track.key }, byApp: true, retune: planned(track.plan) ? track.plan : null });
     autoDj.onDeck[deck.id] = track.id;
   } finally {
     busy = false;
@@ -253,7 +330,13 @@ export async function startAutoDj() {
   autoDj.message = intro;
   autoDj.emit();
 
+  if (planned(first.plan)) {
+    autoDj.message = `Getting ${first.name} ready: exact BPM and key from Files…`;
+    autoDj.emit();
+  }
   await loadOnto(decks.a, first);
+  if (!autoDj.on) return;
+  autoDj.message = intro;
   // The first track plays at the set tempo too (on a journey, at its own).
   const ratio = setBpm && !needsBridge(first, setBpm) ? setBpm / (first.tempo.bpm * tempoMatch(setBpm, first.tempo.bpm).factor) : 1;
   if (Math.abs(ratio - 1) > 1e-4) {

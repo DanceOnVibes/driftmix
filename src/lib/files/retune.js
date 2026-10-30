@@ -13,6 +13,7 @@ import { resample } from "../resample.js";
 
 export { resample };
 import { shiftCamelot } from "../match.js";
+import { keyName } from "../camelot.js";
 
 const NOTES = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"];
 const ALIASES = { Db: 1, "D#": 3, Gb: 6, "G#": 8, "A#": 10 };
@@ -45,6 +46,33 @@ export function retunePlan(found, { targetBpm = null, semitones = 0 } = {}) {
     keyName: found.keyName ? shiftKeyName(found.keyName, semitones) : null,
     semitones,
     changed: tempo !== 1 || semitones !== 0,
+  };
+}
+
+/**
+ * What a track's reading becomes once a plan is applied to its audio, so a
+ * retuned track doesn't have to be read again: the tempo scaled (and its
+ * first beat moved with it), the key moved by the semitones.
+ * @param {{ tempo: object|null, key: object|null }} found  as read from the original
+ * @param {{ tempo?: number, semitones?: number }} plan  tempo: 1.01 = 1% faster
+ * @returns {{ tempo: object|null, key: object|null }}
+ */
+export function retunedReading(found, { tempo = 1, semitones = 0 } = {}) {
+  const t = found?.tempo ?? null;
+  const k = found?.key ?? null;
+  return {
+    tempo: t && { ...t, bpm: t.bpm * tempo, firstBeat: t.firstBeat / tempo },
+    key:
+      k && semitones
+        ? {
+            ...k,
+            root: typeof k.root === "number" ? (((k.root + semitones) % 12) + 12) % 12 : k.root,
+            camelot: shiftCamelot(k.camelot, semitones),
+            // Named the way the key reader names keys, so both agree.
+            name: typeof k.root === "number" && k.mode ? keyName((((k.root + semitones) % 12) + 12) % 12, k.mode) : shiftKeyName(k.name, semitones),
+            alt: k.alt ? { ...k.alt, camelot: shiftCamelot(k.alt.camelot, semitones), name: shiftKeyName(k.alt.name, semitones) } : k.alt ?? null,
+          }
+        : k,
   };
 }
 
