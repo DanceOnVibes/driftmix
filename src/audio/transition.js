@@ -563,8 +563,10 @@ function findSnippet(deck, buffer, stretchTempo, rate, from, startTrack) {
  * @param {"incoming"|"outgoing"} [o.from]  where the snippet comes from
  * @param {boolean} [o.useFix] key fix for the next track (as Mix)
  * @param {number} [o.phraseBars]  start on the next 8-bar phrase (or 1 = next bar)
+ * @param {{ channels: Float32Array[], sampleRate: number, bpm: number, name: string }|null} [o.snippet]
+ *   a sample from the pads to roll instead (its first beat, at the playing tempo)
  */
-export async function startBuildUp({ bars = 8, from = "incoming", useFix = true, phraseBars = 8 } = {}) {
+export async function startBuildUp({ bars = 8, from = "incoming", useFix = true, phraseBars = 8, snippet = null } = {}) {
   const [now, next] = nowAndNext();
   const opts = transitionOptions(now, next);
   if (!opts.ok || isActive()) return;
@@ -588,6 +590,23 @@ export async function startBuildUp({ bars = 8, from = "incoming", useFix = true,
   }
 
   const ctx = audioContext();
+  let padSnip = null;
+  if (snippet) {
+    try {
+      const b = ctx.createBuffer(snippet.channels.length, snippet.channels[0].length, snippet.sampleRate);
+      snippet.channels.forEach((c, i) => b.copyToChannel(c, i));
+      const playing = now.playingBpm;
+      const fitted = Math.abs(playing - snippet.bpm) > 0.05 ? await stretchBuffer(b, playing / snippet.bpm, ctx) : b;
+      padSnip = { buffer: fitted, offset: 0, length: Math.min(fitted.duration, 60 / playing), rate: 1 };
+    } catch {
+      padSnip = null;
+    }
+    if (token !== run) return;
+    if (!now.playing) {
+      mix.set({ status: "idle", message: `${N} stopped, so the build-up didn't start.` });
+      return;
+    }
+  }
   const nt = now.analysis.tempo;
   const xt = next.analysis.tempo;
   const p = planBridge({ bpm: nt.bpm, firstBeat: nt.firstBeat, position: now.position, speed: now.speed, duration: now.duration }, { lead: 0.6, echoBars: bars, phraseBars });
@@ -597,11 +616,14 @@ export async function startBuildUp({ bars = 8, from = "incoming", useFix = true,
   const t2 = t1 + 8 * beat; // echoes ring out
   const half = t0 + (t1 - t0) / 2;
 
-  // The snippet: one beat, from the copy each track will play.
-  const snip =
-    from === "outgoing"
-      ? findSnippet(now, now.stretched || now.buffer, now.stretched ? now.stretchTempo : 1, now.pitchRate, "outgoing", p.startTrack)
-      : findSnippet(next, stretched || next.buffer, stretched ? speed : 1, 1, "incoming", 0);
+  // The snippet: one beat, from the copy each track will play (or a pad's
+  // first beat, brought to the playing tempo before the timing is planned).
+  let snip = padSnip;
+  if (!snippet)
+    snip =
+      from === "outgoing"
+        ? findSnippet(now, now.stretched || now.buffer, now.stretched ? now.stretchTempo : 1, now.pitchRate, "outgoing", p.startTrack)
+        : findSnippet(next, stretched || next.buffer, stretched ? speed : 1, 1, "incoming", 0);
   const heardBpm = now.playingBpm / opts.factor;
   const nextStart = next.cue > 0 ? next.cue : Math.max(0, xt.firstBeat);
 
@@ -714,9 +736,9 @@ export async function startBuildUp({ bars = 8, from = "incoming", useFix = true,
   // Leave the last echoes ringing when it finishes normally: only stop
   // what hasn't played yet (nothing, by then) and free the channel later.
   current = { now, next, plan: { nextStart, nextBpm: heardBpm }, token, cleanup, buildUp: true };
-  const what = snip ? (from === "outgoing" ? `${N}'s last words roll out` : `a taste of ${X} rolls in`) : "a riser builds";
+  const what = snip ? (snippet ? `${snippet.name} rolls` : from === "outgoing" ? `${N}'s last words roll out` : `a taste of ${X} rolls in`) : "a riser builds";
   const shift = semitones ? `, key shifted ${semitones > 0 ? "+" : ""}${semitones}` : "";
-  const base = { from: now.id, to: next.id, when: t0, end: t2, swapAt: t1 - t0, drop: t1, buildUp: true, nextBpm: heardBpm, snippetFrom: snip ? from : null, semitones };
+  const base = { from: now.id, to: next.id, when: t0, end: t2, swapAt: t1 - t0, drop: t1, buildUp: true, nextBpm: heardBpm, snippetFrom: snip ? (snippet ? "pad" : from) : null, semitones };
   mix.set({ ...base, status: "waiting", message: `Build-up on the next phrase: ${what}, then ${X} drops${shift}…` });
   timers.push(
     setTimeout(() => token === run && mix.set({ ...base, status: "blending", message: `Build-up ${N} → ${X}: ${what}${shift}` }), Math.max(0, (t0 - ctx.currentTime) * 1000)),

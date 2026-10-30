@@ -25,7 +25,8 @@ if (new URLSearchParams(window.location.search).has("debug")) {
     import("./audio/keep.js"),
     import("./audio/files.js"),
     import("./audio/analysis.js"),
-  ]).then(([engine, transition, booth, autodj, setrec, keep, filesMod, analysis]) => {
+    import("./audio/sampler.js"),
+  ]).then(([engine, transition, booth, autodj, setrec, keep, filesMod, analysis, samplerMod]) => {
     window.driftmix = {
       decks: engine.decks,
       crossfader: engine.crossfader,
@@ -39,6 +40,7 @@ if (new URLSearchParams(window.location.search).has("debug")) {
       files: filesMod.files,
       analyzeBuffer: analysis.analyzeBuffer,
       master: engine.masterNode,
+      sampler: samplerMod.sampler,
     };
   });
 }

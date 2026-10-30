@@ -13,12 +13,13 @@ import {
   startBuildUp,
 } from "../audio/transition.js";
 import { BAR_CHOICES } from "../lib/transition.js";
+import { sampler, setBuildUpFrom, buildUpChoice } from "../audio/sampler.js";
 
 /** Redraw on any deck or transition change, and smoothly while one runs. */
 function useLive() {
   const [, refresh] = useReducer((n) => n + 1, 0);
   useEffect(() => {
-    const offs = [decks.a.subscribe(refresh), decks.b.subscribe(refresh), mix.subscribe(refresh)];
+    const offs = [decks.a.subscribe(refresh), decks.b.subscribe(refresh), mix.subscribe(refresh), sampler.subscribe(refresh)];
     let frame = 0;
     let last = 0;
     const tick = (time) => {
@@ -44,7 +45,6 @@ export function TransitionPanel() {
   useLive();
   const [bars, setBars] = useState(16);
   const [useFix, setUseFix] = useState(true);
-  const [snippetFrom, setSnippetFrom] = useState("incoming");
   const [now, next] = nowAndNext();
   const N = now.id.toUpperCase();
   const X = next.id.toUpperCase();
@@ -144,7 +144,10 @@ export function TransitionPanel() {
             <button
               type="button"
               className="btn btn-ghost"
-              onClick={() => void startBuildUp({ bars: 8, from: snippetFrom, useFix, phraseBars: 1 })}
+              onClick={() => {
+                const c = buildUpChoice();
+                void startBuildUp({ bars: 8, from: c.from, snippet: c.snippet, useFix, phraseBars: 1 });
+              }}
               disabled={!opts.ok}
               title="A one-beat snippet repeats faster and faster over 8 bars with a riser, one beat of silence, then the next track drops on its first beat."
               data-testid="buildup"
@@ -167,9 +170,16 @@ export function TransitionPanel() {
       {opts.ok && !active && (
         <label className="tempo-choice">
           <span>Build-up snippet from</span>
-          <select value={snippetFrom} onChange={(e) => setSnippetFrom(e.target.value)} data-testid="snippet-from">
+          <select value={sampler.buildUpFrom} onChange={(e) => setBuildUpFrom(e.target.value)} data-testid="snippet-from">
             <option value="incoming">{X}, coming in (a taste of its hook)</option>
             <option value="outgoing">{N}, going out (its last words)</option>
+            {sampler.pads.map((p, i) =>
+              p ? (
+                <option key={i} value={`pad:${i}`}>
+                  Pad {i + 1}: {p.name}
+                </option>
+              ) : null,
+            )}
           </select>
         </label>
       )}

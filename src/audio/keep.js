@@ -5,8 +5,8 @@
  * Everything stays in this browser's own storage (IndexedDB), on this device
  * only: nothing is uploaded. Each track is stored once, even when it's in
  * both lists. With the tracks go their titles, exact BPM, key shifts, what
- * was read from them (so they don't have to be read again) and the Auto DJ
- * settings. Converted files aren't kept: they're quick to make again.
+ * was read from them (so they don't have to be read again), the Auto DJ
+ * settings and the sample pads. Converted files aren't kept: they're quick to make again.
  *
  * Saving waits until the lists have been put back, so a refresh can never
  * save an empty list over the kept one. If the browser won't store anything
@@ -15,6 +15,7 @@
  */
 import { files, restoreItems } from "./files.js";
 import { autoDj, restoreTracks } from "./autodj.js";
+import { sampler, restorePads } from "./sampler.js";
 
 const DB = "driftmix-keep";
 const AUDIO = "audio"; // key → File
@@ -103,13 +104,23 @@ async function save() {
   const tx = db.transaction([LISTS, AUDIO], "readwrite");
   tx.objectStore(LISTS).put(fileList, "files");
   tx.objectStore(LISTS).put(playlist, "autodj");
+  // The pads are small: kept whole, audio and all (only when they changed).
+  const padsVersion = sampler.padsVersion;
+  if (padsVersion !== savedPads)
+    tx.objectStore(LISTS).put(
+      sampler.pads.map((p) => p && { name: p.name, title: p.title, beats: p.beats, bpm: p.bpm, camelot: p.camelot, keyName: p.keyName, cutLow: p.cutLow, sampleRate: p.sampleRate, channels: p.channels }),
+      "pads",
+    );
   for (const key of [...stored]) {
     if (audio.has(key)) continue;
     tx.objectStore(AUDIO).delete(key);
     stored.delete(key);
   }
   await finished(tx);
+  savedPads = padsVersion;
 }
+
+let savedPads = 0;
 
 function scheduleSave() {
   if (!restored || broken) return;
@@ -131,10 +142,11 @@ export async function startKeeping() {
     if (typeof indexedDB === "undefined") throw new Error("no storage");
     const db = await openDb();
     const tx = db.transaction([LISTS, AUDIO], "readonly");
-    const [fileList, playlist, keys] = await Promise.all([
+    const [fileList, playlist, keys, pads] = await Promise.all([
       asked(tx.objectStore(LISTS).get("files")),
       asked(tx.objectStore(LISTS).get("autodj")),
       asked(tx.objectStore(AUDIO).getAllKeys()),
+      asked(tx.objectStore(LISTS).get("pads")),
     ]);
     for (const key of keys) stored.add(String(key));
     const wanted = [...new Set([...(fileList || []).map((e) => e.key), ...(playlist?.tracks || []).map((e) => e.key)])].filter((k) => stored.has(k));
@@ -150,6 +162,10 @@ export async function startKeeping() {
       files.emit();
     }
     if (backTracks.length || playlist?.settings) restoreTracks({ tracks: backTracks, settings: playlist?.settings });
+    if (pads?.some(Boolean)) {
+      restorePads(pads);
+      savedPads = sampler.padsVersion;
+    }
     if (backTracks.length && !autoDj.message) {
       autoDj.message = `Welcome back: your playlist of ${backTracks.length} is still here.`;
       autoDj.emit();
@@ -160,6 +176,7 @@ export async function startKeeping() {
   restored = true;
   files.subscribe(scheduleSave);
   autoDj.subscribe(scheduleSave);
+  sampler.subscribe(() => sampler.padsVersion !== savedPads && scheduleSave());
   scheduleSave();
   // Ask the browser not to clear the kept tracks when space runs low.
   try {
