@@ -21,10 +21,11 @@
  *     in on the next phrase line ("polish"), so nothing plays sped up by the
  *     browser for long.
  */
-import { audioContext, decks, crossfader, setCrossfader, BASS_CUT, MID_CUT, masterNode, echoControls } from "./engine.js";
+import { audioContext, decks, crossfader, setCrossfader, BASS_CUT, MID_CUT, masterNode, echoControls, echoBus, onSample } from "./engine.js";
 import { stretchBuffer, localGrid } from "./analysis.js";
 import { planTransition, refinePlan, blendCurves } from "../lib/transition.js";
 import { planBridge, settlePoint } from "../lib/bridge.js";
+import { rollPattern, pickSnippet, snippetCandidates } from "../lib/buildup.js";
 import { tempoMatch, keyMatch, keyFixes } from "../lib/match.js";
 
 /** What the transition is doing, for the screen. */
@@ -517,6 +518,208 @@ export async function startBridge({ ratio = 1, heardBpm = null, why = "" } = {})
   mix.set({ ...base, status: "waiting", message: `Echo-out bridge on the next phrase${why ? ` (${why})` : ""}…` });
   timers.push(
     setTimeout(() => token === run && mix.set({ ...base, status: "blending", message: `Echo-out bridge ${N} → ${X}${why ? ` (${why})` : ""}` }), Math.max(0, (t0 - ctx.currentTime) * 1000)),
+  );
+  timers.push(setTimeout(() => token === run && finish(), Math.max(0, (t2 - ctx.currentTime) * 1000) + 60));
+}
+
+// ---- the build-up ------------------------------------------------------------
+
+/** For the tests: the last build-up's roll channel (to listen to it alone). */
+export const taps = { roll: null };
+
+/**
+ * One beat of the track (as it will play) where a voice or lead stands out,
+ * from the track going out or the one coming in.
+ * @returns {{ buffer: AudioBuffer, offset: number, length: number, rate: number }}
+ *   offset, length: seconds in that buffer; rate: playback rate
+ */
+function findSnippet(deck, buffer, stretchTempo, rate, from, startTrack) {
+  const t = deck.analysis.tempo;
+  const list = snippetCandidates({ bpm: t.bpm, firstBeat: t.firstBeat, duration: deck.duration }, from, startTrack);
+  if (!list.length) return null;
+  // Track seconds → seconds in the copy that plays.
+  const toBuf = (s) => s / stretchTempo;
+  const sr = buffer.sampleRate;
+  const lo = Math.max(0, Math.floor(toBuf(list[0].start) * sr));
+  const hi = Math.min(buffer.length, Math.ceil(toBuf(list[list.length - 1].start + list[list.length - 1].length) * sr));
+  if (hi - lo < 64) return null;
+  const mono = new Float32Array(hi - lo);
+  for (let c = 0; c < buffer.numberOfChannels; c++) {
+    const d = buffer.getChannelData(c);
+    for (let i = 0; i < mono.length; i++) mono[i] += d[lo + i] / buffer.numberOfChannels;
+  }
+  const best = list[pickSnippet(mono, sr, list.map((c) => ({ start: toBuf(c.start) - lo / sr, length: toBuf(c.length) })))];
+  return { buffer, offset: toBuf(best.start), length: toBuf(best.length), rate };
+}
+
+/**
+ * Build-up: on the next phrase line a one-beat snippet starts repeating in
+ * time, faster and faster (2 beats, 1, ½, ¼, ⅛) while a riser climbs and the
+ * playing track thins out. One beat of silence, then the next track drops on
+ * its first beat, with the snippet's last repeats echoing over it.
+ * Needs tempos that can match (like Mix): the drop lands on the beat.
+ * @param {object} o
+ * @param {4|8} [o.bars]       length of the build-up
+ * @param {"incoming"|"outgoing"} [o.from]  where the snippet comes from
+ * @param {boolean} [o.useFix] key fix for the next track (as Mix)
+ * @param {number} [o.phraseBars]  start on the next 8-bar phrase (or 1 = next bar)
+ */
+export async function startBuildUp({ bars = 8, from = "incoming", useFix = true, phraseBars = 8 } = {}) {
+  const [now, next] = nowAndNext();
+  const opts = transitionOptions(now, next);
+  if (!opts.ok || isActive()) return;
+  const N = now.id.toUpperCase();
+  const X = next.id.toUpperCase();
+  const semitones = useFix && opts.fix ? opts.fix.semitones : 0;
+  const token = ++run;
+  mix.set({ status: "preparing", from: now.id, to: next.id, buildUp: true, message: `Getting ${X} ready for a build-up…` });
+  const speed = settings(now, next, bars, semitones, opts.factor).speed;
+  let stretched;
+  try {
+    stretched = await prepare(next, speed, semitones);
+  } catch {
+    if (token === run) mix.set({ status: "error", message: `Couldn't prepare ${X}. Try loading it again.` });
+    return;
+  }
+  if (token !== run) return;
+  if (!now.playing) {
+    mix.set({ status: "idle", message: `${N} stopped, so the build-up didn't start.` });
+    return;
+  }
+
+  const ctx = audioContext();
+  const nt = now.analysis.tempo;
+  const xt = next.analysis.tempo;
+  const p = planBridge({ bpm: nt.bpm, firstBeat: nt.firstBeat, position: now.position, speed: now.speed, duration: now.duration }, { lead: 0.6, echoBars: bars, phraseBars });
+  const beat = p.beat;
+  const t0 = ctx.currentTime + p.startIn;
+  const t1 = ctx.currentTime + p.dropIn; // the drop
+  const t2 = t1 + 8 * beat; // echoes ring out
+  const half = t0 + (t1 - t0) / 2;
+
+  // The snippet: one beat, from the copy each track will play.
+  const snip =
+    from === "outgoing"
+      ? findSnippet(now, now.stretched || now.buffer, now.stretched ? now.stretchTempo : 1, now.pitchRate, "outgoing", p.startTrack)
+      : findSnippet(next, stretched || next.buffer, stretched ? speed : 1, 1, "incoming", 0);
+  const heardBpm = now.playingBpm / opts.factor;
+  const nextStart = next.cue > 0 ? next.cue : Math.max(0, xt.firstBeat);
+
+  now.ensureNodes();
+  next.ensureNodes();
+  next.setStretch({ buffer: stretched, stretchTempo: stretched ? speed : 1, pitchRate: 1, semitones, heardBpm });
+  next.resetEq();
+  crossfader.locked = true;
+  crossfader.emit();
+
+  const t = ctx.currentTime;
+  const nowFader = now.faderNode.gain;
+  const nextFader = next.faderNode.gain;
+  const startLevel = Math.max(0.0001, nowFader.value);
+  for (const prm of [nowFader, nextFader, now.filterNode.frequency, now.bassNode.gain, now.sendNode.gain]) prm.cancelScheduledValues(t);
+  nowFader.setValueAtTime(startLevel, t);
+  nextFader.setValueAtTime(0, t);
+  // The playing track thins out (filter up, bass out in the second half),
+  // gets quieter under the roll, and stops for the last beat.
+  const hp = now.filterNode.frequency;
+  hp.setValueAtTime(10, t);
+  hp.setValueAtTime(30, t0);
+  hp.exponentialRampToValueAtTime(600, t1 - beat);
+  const bass = now.bassNode.gain;
+  bass.setValueAtTime(0, half);
+  bass.linearRampToValueAtTime(BASS_CUT, half + 4 * beat);
+  nowFader.setValueAtTime(startLevel, t0);
+  nowFader.linearRampToValueAtTime(startLevel * 0.7, half);
+  nowFader.linearRampToValueAtTime(startLevel * 0.4, t1 - beat - 0.02);
+  nowFader.linearRampToValueAtTime(0, t1 - beat);
+  // The next track drops in full on its first beat.
+  nextFader.setValueAtTime(0, t1 - 0.005);
+  nextFader.linearRampToValueAtTime(1, t1 + 0.005);
+
+  // The roll: its own little channel (kick and bass filtered out) into the
+  // master, and into the echo for the last repeats.
+  const bus = ctx.createGain();
+  const busHp = ctx.createBiquadFilter();
+  busHp.type = "highpass";
+  busHp.Q.value = 0.7;
+  const busSend = ctx.createGain();
+  taps.roll = busHp;
+  bus.connect(busHp);
+  busHp.connect(masterNode());
+  busHp.connect(busSend);
+  busSend.connect(echoBus(ctx));
+  bus.gain.setValueAtTime(0.8, t0);
+  bus.gain.linearRampToValueAtTime(0.95, t1 - beat);
+  // Incoming: starts thin and fills out (it's arriving); outgoing: stays thin.
+  busHp.frequency.setValueAtTime(from === "outgoing" ? 300 : 600, t0);
+  busHp.frequency.exponentialRampToValueAtTime(from === "outgoing" ? 400 : 220, t1 - beat);
+  busSend.gain.setValueAtTime(0, t);
+  busSend.gain.setValueAtTime(0, t1 - 3 * beat);
+  busSend.gain.linearRampToValueAtTime(0.8, t1 - beat);
+  busSend.gain.setValueAtTime(0.8, t1);
+  busSend.gain.linearRampToValueAtTime(0, t1 + beat);
+  const echo = echoControls();
+  echo.delay.delayTime.setValueAtTime(Math.min(3.9, 0.75 * beat), t);
+  echo.feedback.gain.cancelScheduledValues(t);
+  echo.feedback.gain.setValueAtTime(0.5, t);
+  echo.out.gain.cancelScheduledValues(t);
+  echo.out.gain.setValueAtTime(1, t);
+  echo.out.gain.setValueAtTime(1, t1 + 2 * beat);
+  echo.out.gain.linearRampToValueAtTime(0, t2);
+
+  const sources = [];
+  if (snip) {
+    const sr = ctx.sampleRate;
+    const realLength = snip.length / snip.rate;
+    for (const hit of rollPattern(bars)) {
+      const when = onSample(t0 + hit.at * beat, sr);
+      // Fast repeats are gated a little shorter, so each one is heard as a
+      // new hit even when the snippet is a held chord or a long note.
+      const dur = Math.min(hit.length * beat * (hit.length <= 0.25 ? 0.6 : hit.length <= 0.5 ? 0.85 : 1), realLength);
+      const src = ctx.createBufferSource();
+      src.buffer = snip.buffer;
+      src.playbackRate.value = snip.rate;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0, when);
+      g.gain.linearRampToValueAtTime(1, when + 0.003);
+      g.gain.setValueAtTime(1, when + dur - 0.006);
+      g.gain.linearRampToValueAtTime(0, when + dur);
+      src.connect(g).connect(bus);
+      src.start(when, onSample(snip.offset, snip.buffer.sampleRate), dur * snip.rate + 0.01);
+      sources.push(src);
+    }
+  }
+  // The riser peaks as the roll stops, so the last beat is a breath (only
+  // echoes) before the drop.
+  const stopRiser = riser(ctx, half, t1 - beat, 0.3);
+  next.startAt(t1, nextStart);
+
+  const cleanup = () => {
+    stopRiser();
+    for (const src of sources) {
+      try {
+        src.stop();
+      } catch {
+        /* already done */
+      }
+    }
+    bus.disconnect();
+    busSend.disconnect();
+    const c = audioContext().currentTime;
+    echo.out.gain.cancelScheduledValues(c);
+    echo.out.gain.setValueAtTime(1, c);
+    echo.feedback.gain.cancelScheduledValues(c);
+    echo.feedback.gain.setValueAtTime(0.55, c);
+  };
+  // Leave the last echoes ringing when it finishes normally: only stop
+  // what hasn't played yet (nothing, by then) and free the channel later.
+  current = { now, next, plan: { nextStart, nextBpm: heardBpm }, token, cleanup, buildUp: true };
+  const what = snip ? (from === "outgoing" ? `${N}'s last words roll out` : `a taste of ${X} rolls in`) : "a riser builds";
+  const shift = semitones ? `, key shifted ${semitones > 0 ? "+" : ""}${semitones}` : "";
+  const base = { from: now.id, to: next.id, when: t0, end: t2, swapAt: t1 - t0, drop: t1, buildUp: true, nextBpm: heardBpm, snippetFrom: snip ? from : null, semitones };
+  mix.set({ ...base, status: "waiting", message: `Build-up on the next phrase: ${what}, then ${X} drops${shift}…` });
+  timers.push(
+    setTimeout(() => token === run && mix.set({ ...base, status: "blending", message: `Build-up ${N} → ${X}: ${what}${shift}` }), Math.max(0, (t0 - ctx.currentTime) * 1000)),
   );
   timers.push(setTimeout(() => token === run && finish(), Math.max(0, (t2 - ctx.currentTime) * 1000) + 60));
 }

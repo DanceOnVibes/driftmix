@@ -31,12 +31,14 @@ if (new URLSearchParams(window.location.search).has("debug")) {
       crossfader: engine.crossfader,
       audioContext: engine.audioContext,
       mix: transition.mix,
+      taps: transition.taps,
       booth: booth.booth,
       autoDj: autodj.autoDj,
       setRec: setrec.setRec,
       keep,
       files: filesMod.files,
       analyzeBuffer: analysis.analyzeBuffer,
+      master: engine.masterNode,
     };
   });
 }

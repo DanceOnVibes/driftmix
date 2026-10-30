@@ -19,7 +19,7 @@
  */
 import { audioContext, decks, setCrossfader } from "./engine.js";
 import { analyzeBuffer, stretchBuffer } from "./analysis.js";
-import { mix, isActive, nowAndNext, transitionOptions, startTransition, cancelTransition, startBridge, polish } from "./transition.js";
+import { mix, isActive, nowAndNext, transitionOptions, startTransition, cancelTransition, startBridge, startBuildUp, polish } from "./transition.js";
 import { orderSet, orderJourney, fitsTempo, mixOutIn, mixOutPoint } from "../lib/setlist.js";
 import { chooseMix, settlePoint } from "../lib/bridge.js";
 import { tempoMatch, TEMPO_AMBER } from "../lib/match.js";
@@ -39,6 +39,8 @@ export const autoDj = {
   tempoChoice: "first", // "first" = the first track's tempo, "journey" = each its own, or a number (128 …)
   setBpm: null, // the set's locked tempo while running (null on a journey)
   bridge: true, // echo-out bridge when tracks can't blend (off = skip them)
+  buildUps: "off", // "off" | "third" (every third mix) | "every": a build-up instead of a blend
+  mixes: 0, // mixes made in this set (for "every third")
   onDeck: { a: null, b: null }, // which playlist track is on each deck
   message: "",
   listeners: new Set(),
@@ -154,6 +156,7 @@ export function restoreTracks({ tracks, settings }) {
     if (settings.tempoChoice !== undefined) autoDj.tempoChoice = settings.tempoChoice;
     if (BAR_OK(settings.bars)) autoDj.bars = settings.bars;
     if (typeof settings.bridge === "boolean") autoDj.bridge = settings.bridge;
+    if (["off", "third", "every"].includes(settings.buildUps)) autoDj.buildUps = settings.buildUps;
   }
   autoDj.emit();
   return added.length;
@@ -244,6 +247,14 @@ export function setBridge(on) {
   autoDj.emit();
 }
 
+export function setBuildUps(value) {
+  autoDj.buildUps = ["off", "third", "every"].includes(value) ? value : "off";
+  autoDj.emit();
+}
+
+/** Is the next mix a build-up? (Every third: mixes 3, 6, 9…) */
+const buildUpDue = () => autoDj.buildUps === "every" || (autoDj.buildUps === "third" && autoDj.mixes % 3 === 2);
+
 const journey = () => autoDj.tempoChoice === "journey";
 
 /** Can this track play in the set? (On a journey, or with the bridge on, any track with a beat can.) */
@@ -326,6 +337,7 @@ export async function startAutoDj() {
   autoDj.on = true;
   mix.autoPolish = false; // Auto DJ settles or polishes each track itself
   autoDj.onDeck = { a: null, b: null };
+  autoDj.mixes = 0;
   const intro = setBpm ? `Set tempo ${fmt(setBpm)} BPM.` : "Tempo journey: every track settles to its own tempo after its blend.";
   autoDj.message = intro;
   autoDj.emit();
@@ -416,7 +428,8 @@ function tick() {
   });
   // Tracks with a "?" tempo wander a little: keep their blends short.
   const unsure = !t.sure || !next.analysis.tempo?.sure;
-  const bars = choice.kind === "bridge" ? 3 : unsure ? Math.min(8, autoDj.bars) : autoDj.bars;
+  const buildUp = choice.kind === "blend" && buildUpDue();
+  const bars = choice.kind === "bridge" ? 3 : buildUp ? 8 : unsure ? Math.min(8, autoDj.bars) : autoDj.bars;
   // Mix out on the last 8-bar phrase line that leaves room for the blend (or
   // the bridge), starting the preparation a few seconds before it. A bridge
   // that stretches the next track needs longer to get ready.
@@ -437,7 +450,17 @@ function tick() {
     return;
   }
   const opts = transitionOptions(now, next);
+  if (buildUp && opts.ok) {
+    // The snippet takes turns: a taste of the next track, then the last words of the one going out.
+    const from = Math.floor(autoDj.mixes / (autoDj.buildUps === "every" ? 1 : 3)) % 2 === 0 ? "incoming" : "outgoing";
+    autoDj.mixes++;
+    autoDj.message = `${nextName}: build-up (${from === "incoming" ? "a taste of it rolls in" : "the last words roll out"}).`;
+    autoDj.emit();
+    void startBuildUp({ bars: 8, from, useFix: true, phraseBars: point !== null && point > now.position ? 8 : 1 });
+    return;
+  }
   if (choice.kind === "blend" && opts.ok) {
+    autoDj.mixes++;
     if (bars < autoDj.bars) {
       autoDj.message = "A track with a ? tempo: blending over 8 bars to keep the beats tight.";
       autoDj.emit();

@@ -10,6 +10,7 @@ import {
   cancelTransition,
   startBridge,
   bridgeOptions,
+  startBuildUp,
 } from "../audio/transition.js";
 import { BAR_CHOICES } from "../lib/transition.js";
 
@@ -43,6 +44,7 @@ export function TransitionPanel() {
   useLive();
   const [bars, setBars] = useState(16);
   const [useFix, setUseFix] = useState(true);
+  const [snippetFrom, setSnippetFrom] = useState("incoming");
   const [now, next] = nowAndNext();
   const N = now.id.toUpperCase();
   const X = next.id.toUpperCase();
@@ -59,7 +61,15 @@ export function TransitionPanel() {
 
   let progress = 0;
   let detail = "";
-  if ((state.status === "waiting" || state.status === "blending") && state.when && state.bridge) {
+  if ((state.status === "waiting" || state.status === "blending") && state.when && state.buildUp) {
+    const t = audioContext().currentTime;
+    const elapsed = t - state.when;
+    if (elapsed < 0) detail = `Starts in ${Math.max(0, -elapsed).toFixed(1)} s, on the phrase.`;
+    else {
+      progress = Math.min(1, elapsed / (state.end - state.when));
+      detail = elapsed < state.swapAt ? `Building · ${X} drops in ${(state.swapAt - elapsed).toFixed(1)} s` : `${X} dropped · echoes ringing out`;
+    }
+  } else if ((state.status === "waiting" || state.status === "blending") && state.when && state.bridge) {
     const t = audioContext().currentTime;
     const elapsed = t - state.when;
     if (elapsed < 0) detail = `Starts in ${Math.max(0, -elapsed).toFixed(1)} s, on the phrase.`;
@@ -133,6 +143,16 @@ export function TransitionPanel() {
             </button>
             <button
               type="button"
+              className="btn btn-ghost"
+              onClick={() => void startBuildUp({ bars: 8, from: snippetFrom, useFix, phraseBars: 1 })}
+              disabled={!opts.ok}
+              title="A one-beat snippet repeats faster and faster over 8 bars with a riser, one beat of silence, then the next track drops on its first beat."
+              data-testid="buildup"
+            >
+              Build-up
+            </button>
+            <button
+              type="button"
               className="btn btn-gold mix-btn"
               onClick={() => void startTransition({ bars, useFix })}
               disabled={!opts.ok}
@@ -143,6 +163,16 @@ export function TransitionPanel() {
           </span>
         )}
       </div>
+
+      {opts.ok && !active && (
+        <label className="tempo-choice">
+          <span>Build-up snippet from</span>
+          <select value={snippetFrom} onChange={(e) => setSnippetFrom(e.target.value)} data-testid="snippet-from">
+            <option value="incoming">{X}, coming in (a taste of its hook)</option>
+            <option value="outgoing">{N}, going out (its last words)</option>
+          </select>
+        </label>
+      )}
 
       {opts.fix && !active && (
         <label className="fix">
