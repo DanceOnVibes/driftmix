@@ -23,6 +23,7 @@ import {
   skipReason,
   setBridge,
   needsBridge,
+  setBuildUps,
 } from "../audio/autodj.js";
 
 const TEMPOS = [120, 122, 124, 125, 126, 128, 130, 132, 134, 136, 138, 140, 145, 150];
@@ -161,6 +162,14 @@ export function AutoDjPanel() {
         <label className="fcheck" title="When two tracks can't blend (tempos more than 6% apart, or keys that clash), echo the playing one out and drop the next on its own beat, instead of skipping it.">
           <input type="checkbox" checked={autoDj.bridge} onChange={(e) => setBridge(e.target.checked)} disabled={autoDj.on} data-testid="bridge-on" />
           <span>Echo-out bridge when tracks don't match</span>
+        </label>
+        <label className="tempo-choice" title="A build-up: a one-beat snippet rolls faster and faster with a riser, one beat of silence, and the next track drops. The snippet takes turns: a taste of the next track, then the last words of the one going out.">
+          <span>Build-ups</span>
+          <select value={autoDj.buildUps} onChange={(e) => setBuildUps(e.target.value)} disabled={autoDj.on} data-testid="buildups">
+            <option value="off">Off (blends)</option>
+            <option value="third">Every third mix</option>
+            <option value="every">Every mix</option>
+          </select>
         </label>
         {autoDj.on ? (
           <button type="button" className="btn btn-silver" onClick={() => stopAutoDj()} data-testid="autodj-toggle">
