@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App.jsx";
 import "./styles.css";
 import { startKeeping } from "./audio/keep.js";
-import { startApp } from "./audio/app.js";
+import { startApp, app } from "./audio/app.js";
 import { findDemo } from "./audio/demo.js";
 
 createRoot(document.getElementById("root")).render(
@@ -16,6 +16,8 @@ createRoot(document.getElementById("root")).render(
 void startKeeping();
 // Installable app, works offline, says when a new version is ready.
 startApp();
+// The version on the page itself (support and tests read it; also in the ⚙ menu).
+document.documentElement.dataset.version = app.version;
 // A demo set, if this copy of DriftMix has one.
 void findDemo();
 

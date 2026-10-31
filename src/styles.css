@@ -313,3 +313,64 @@ button.pad:active { background: rgba(212, 166, 74, 0.18); }
 .install-btn { font-size: 0.95rem; }
 .install-ios { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .install-hint { color: var(--muted); font-size: 0.85rem; }
+
+/* ---------- Folded settings ---------- */
+.fold { border: 1px solid var(--line); border-radius: 10px; background: rgba(0, 0, 0, 0.35); }
+.fold-btn {
+  width: 100%; display: flex; align-items: baseline; gap: 10px; padding: 10px 12px;
+  background: none; border: 0; border-radius: 10px; color: var(--gold); font: inherit; text-align: left; cursor: pointer;
+}
+.fold-btn:hover { background: rgba(212, 166, 74, 0.06); }
+.fold-label { flex: none; font-size: 0.75rem; letter-spacing: 0.14em; text-transform: uppercase; }
+.fold-sum { flex: 1; min-width: 0; color: var(--muted); font-size: 0.82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fold-arrow { flex: none; display: inline-block; transition: transform 0.15s ease; }
+.fold-open .fold-arrow { transform: rotate(90deg); }
+.fold-open .fold-sum { visibility: hidden; }
+.fold-body { padding: 0 12px 12px; }
+.fold-body > .autodj-tools { margin: 0; }
+
+/* ---------- Header right: section links and the ⚙ menu ---------- */
+.top-right { display: flex; align-items: center; gap: 16px; }
+.menu { position: relative; }
+.menu-btn {
+  position: relative; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center;
+  background: transparent; border: 1px solid rgba(212, 166, 74, 0.5); color: var(--gold); font-size: 1.15rem; line-height: 1; cursor: pointer;
+}
+.menu-btn:hover, .menu-btn[aria-expanded="true"] { background: rgba(212, 166, 74, 0.1); }
+.menu-dot { position: absolute; top: 4px; right: 4px; width: 9px; height: 9px; border-radius: 50%; background: var(--gold-bright); }
+.menu-panel {
+  position: absolute; right: 0; top: calc(100% + 8px); z-index: 30; width: min(280px, calc(100vw - 32px));
+  display: flex; flex-direction: column; gap: 2px; padding: 8px; background: var(--bg-raised); border: 1px solid var(--line);
+  border-radius: 12px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
+}
+.menu-item {
+  display: block; width: 100%; padding: 10px 12px; border: 0; border-radius: 8px; background: none; color: var(--text);
+  font: inherit; font-size: 0.92rem; text-align: left; text-decoration: none; cursor: pointer;
+}
+.menu-item:hover { background: rgba(212, 166, 74, 0.08); color: var(--gold-bright); }
+.menu-item-gold { color: var(--gold-bright); }
+.menu-note { margin: 4px 12px 6px; color: var(--muted); font-size: 0.8rem; line-height: 1.5; }
+.menu-note a { color: var(--muted); }
+.install-ios-menu { display: block; }
+.install-ios-menu .install-hint { display: block; padding: 0 12px 8px; }
+
+/* ---------- Phones: one section at a time, tabs at the bottom ---------- */
+.tabbar { display: none; }
+@media (max-width: 700px) {
+  .jump { display: none; }
+  .tab-group:not(.tab-on) { display: none; }
+  .app { padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
+  .tabbar {
+    display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+    padding: 6px 6px calc(6px + env(safe-area-inset-bottom)); gap: 4px;
+    background: rgba(10, 8, 5, 0.96); border-top: 1px solid var(--line); backdrop-filter: blur(8px);
+  }
+  .tab {
+    position: relative; flex: 1; min-width: 0; padding: 12px 2px; border: 0; border-radius: 10px; background: none;
+    color: var(--muted); font: 600 0.8rem var(--sans); cursor: pointer;
+  }
+  .tab-active { color: #120d04; background: linear-gradient(180deg, var(--gold-bright), var(--gold)); }
+  .tab-dot { position: absolute; top: 6px; right: 8px; width: 7px; height: 7px; border-radius: 50%; background: var(--gold-bright); }
+}
+.foot .made-by { color: var(--text); }
+.foot .made-by a { color: var(--gold); }

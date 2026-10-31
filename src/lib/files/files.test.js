@@ -7,7 +7,7 @@ import { buildId3 } from "./id3.js";
 import { makeZip, crc32 } from "./zip.js";
 import { integratedLufs, loudnessGain } from "./loudness.js";
 import { trimSilence, toMono, toInt, peakDb, applyGainDb } from "./tools.js";
-import { shortKey, exportName, safeName } from "./naming.js";
+import { shortKey, exportName, safeName, tidyName } from "./naming.js";
 import { sniff } from "./sniff.js";
 
 const sine = (hz, seconds, rate, amp) => Float32Array.from({ length: Math.round(seconds * rate) }, (_, i) => amp * Math.sin((2 * Math.PI * hz * i) / rate));
@@ -197,4 +197,28 @@ test("VBR MP3 (like Suno's): the real average bit rate, not the info frame's 64 
   const cbr = sniff(b);
   assert.equal(cbr.vbr, undefined);
   assert.equal(cbr.bitrate, 64);
+});
+
+test("tidy names: what people read, not what the file is called", () => {
+  const cases = {
+    "07 Lost in the RHYTHM - by The Drift3r (130 BPM, 2A).mp3": "Lost in the RHYTHM",
+    "Edge of Light - by The Drift3r_180631456_143052234.wav": "Edge of Light",
+    "Our Mothers_141143481.wav": "Our Mothers",
+    "Ride the Wave (1).mp3": "Ride the Wave",
+    "12 One Heartbeat (134 BPM, 8A).mp3": "One Heartbeat",
+    "Butterflies in the Light - by The Drifter  1.wav": "Butterflies in the Light",
+    "3. Turn It Up.mp3": "Turn It Up",
+    "05 - Dracula's Land (8A).wav": "Dracula's Land",
+    "Vortex of Your Music_222003103_225237910.mp3": "Vortex of Your Music",
+    "Age Is Just A Number.mp3": "Age Is Just A Number",
+    "Inspiration (128 BPM).mp3": "Inspiration",
+    // Titles that only look like it stay as they are.
+    "9 to 5.mp3": "9 to 5",
+    "128 to 135.wav": "128 to 135",
+    "24 Hours.mp3": "24 Hours",
+    "Sunrise (Extended Mix).mp3": "Sunrise (Extended Mix)",
+  };
+  for (const [file, want] of Object.entries(cases)) assert.equal(tidyName(file), want, file);
+  for (const want of Object.values(cases)) assert.equal(tidyName(want), want, "safe to run twice: " + want);
+  assert.equal(tidyName("07.mp3"), "07", "never empty");
 });

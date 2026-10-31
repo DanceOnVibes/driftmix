@@ -29,6 +29,7 @@ export const app = {
 
 let installEvent = null;
 let waiting = null;
+let registration = null;
 
 export function startApp() {
   if (typeof window === "undefined") return;
@@ -50,6 +51,7 @@ export function startApp() {
   const register = async () => {
     try {
       const reg = await navigator.serviceWorker.register("./sw.js", { scope: "./" });
+      registration = reg;
       const watch = (worker) => {
         if (!worker) return;
         worker.addEventListener("statechange", () => {
@@ -88,6 +90,27 @@ function offer(worker) {
 export function applyUpdate() {
   if (waiting) waiting.postMessage("update");
   else window.location.reload();
+}
+
+/**
+ * "Check for updates" (⚙ menu): asks for a new version now instead of
+ * waiting for the half-hourly check.
+ * @returns {Promise<"update"|"latest"|"offline">}
+ */
+export async function checkForUpdate() {
+  if (app.update) return "update";
+  if (!registration) return "offline";
+  try {
+    await registration.update();
+  } catch {
+    return "offline";
+  }
+  // A new version installs in the background; give it a moment to say so.
+  for (let i = 0; i < 20 && !app.update; i++) {
+    if (!registration.installing) break;
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  return app.update ? "update" : "latest";
 }
 
 /** "Install app": the browser's own prompt. */

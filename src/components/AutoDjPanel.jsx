@@ -7,6 +7,7 @@ import { decks } from "../audio/engine.js";
 import { files, filesForAutoDj } from "../audio/files.js";
 import { SetRecorder } from "./SetRecorder.jsx";
 import { UndoStrip } from "./UndoStrip.jsx";
+import { Fold } from "./Fold.jsx";
 import { demo, playDemo } from "../audio/demo.js";
 import {
   autoDj,
@@ -133,63 +134,9 @@ export function AutoDjPanel() {
             e.target.value = "";
           }}
         />
-        <label className="tempo-choice">
-          <span>Set tempo</span>
-          <select
-            value={String(autoDj.tempoChoice)}
-            onChange={(e) => setTempoChoice(e.target.value)}
-            disabled={autoDj.on}
-            data-testid="set-tempo"
-          >
-            <option value="first">First track{firstBpm ? ` (${fmt(firstBpm)})` : ""}</option>
-            <option value="journey">Journey: each its own</option>
-            {TEMPOS.map((n) => (
-              <option key={n} value={String(n)}>
-                {n} BPM
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="tempo-choice">
-          <span>Order by</span>
-          <select value={autoDj.orderBy} onChange={(e) => setOrderBy(e.target.value)} disabled={autoDj.on} data-testid="order-by">
-            {Object.entries(ORDER_BY).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
         <button type="button" className="btn btn-ghost" onClick={sortSet} disabled={autoDj.on || ready.length < 3 || readingCount > 0} data-testid="sort">
           Order for a smooth set
         </button>
-        <div className="bars" role="radiogroup" aria-label="Auto DJ blend length">
-          {BAR_CHOICES.map((n) => (
-            <button
-              key={n}
-              type="button"
-              role="radio"
-              aria-checked={autoDj.bars === n}
-              className={`bar-choice${autoDj.bars === n ? " bar-on" : ""}`}
-              onClick={() => setBars(n)}
-              disabled={autoDj.on}
-            >
-              {n} bars
-            </button>
-          ))}
-        </div>
-        <label className="fcheck" title="When two tracks can't blend (tempos more than 6% apart, or keys that clash), echo the playing one out and drop the next on its own beat, instead of skipping it.">
-          <input type="checkbox" checked={autoDj.bridge} onChange={(e) => setBridge(e.target.checked)} disabled={autoDj.on} data-testid="bridge-on" />
-          <span>Echo-out bridge when tracks don't match</span>
-        </label>
-        <label className="tempo-choice" title="A build-up: a one-beat snippet rolls faster and faster with a riser, one beat of silence, and the next track drops. The snippet takes turns: a taste of the next track, then the last words of the one going out.">
-          <span>Build-ups</span>
-          <select value={autoDj.buildUps} onChange={(e) => setBuildUps(e.target.value)} disabled={autoDj.on} data-testid="buildups">
-            <option value="off">Off (blends)</option>
-            <option value="third">Every third mix</option>
-            <option value="every">Every mix</option>
-          </select>
-        </label>
         {autoDj.on ? (
           <button type="button" className="btn btn-silver" onClick={() => stopAutoDj()} data-testid="autodj-toggle">
             Stop Auto DJ
@@ -206,6 +153,65 @@ export function AutoDjPanel() {
           </button>
         )}
       </div>
+
+      <Fold id="autodj-settings" summary={autoDjSummary(firstBpm)}>
+        <div className="autodj-tools">
+          <label className="tempo-choice">
+            <span>Set tempo</span>
+            <select
+              value={String(autoDj.tempoChoice)}
+              onChange={(e) => setTempoChoice(e.target.value)}
+              disabled={autoDj.on}
+              data-testid="set-tempo"
+            >
+              <option value="first">First track{firstBpm ? ` (${fmt(firstBpm)})` : ""}</option>
+              <option value="journey">Journey: each its own</option>
+              {TEMPOS.map((n) => (
+                <option key={n} value={String(n)}>
+                  {n} BPM
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="tempo-choice">
+            <span>Order by</span>
+            <select value={autoDj.orderBy} onChange={(e) => setOrderBy(e.target.value)} disabled={autoDj.on} data-testid="order-by">
+              {Object.entries(ORDER_BY).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="bars" role="radiogroup" aria-label="Auto DJ blend length">
+            {BAR_CHOICES.map((n) => (
+              <button
+                key={n}
+                type="button"
+                role="radio"
+                aria-checked={autoDj.bars === n}
+                className={`bar-choice${autoDj.bars === n ? " bar-on" : ""}`}
+                onClick={() => setBars(n)}
+                disabled={autoDj.on}
+              >
+                {n} bars
+              </button>
+            ))}
+          </div>
+          <label className="fcheck" title="When two tracks can't blend (tempos more than 6% apart, or keys that clash), echo the playing one out and drop the next on its own beat, instead of skipping it.">
+            <input type="checkbox" checked={autoDj.bridge} onChange={(e) => setBridge(e.target.checked)} disabled={autoDj.on} data-testid="bridge-on" />
+            <span>Echo-out bridge when tracks don't match</span>
+          </label>
+          <label className="tempo-choice" title="A build-up: a one-beat snippet rolls faster and faster with a riser, one beat of silence, and the next track drops. The snippet takes turns: a taste of the next track, then the last words of the one going out.">
+            <span>Build-ups</span>
+            <select value={autoDj.buildUps} onChange={(e) => setBuildUps(e.target.value)} disabled={autoDj.on} data-testid="buildups">
+              <option value="off">Off (blends)</option>
+              <option value="third">Every third mix</option>
+              <option value="every">Every mix</option>
+            </select>
+          </label>
+        </div>
+      </Fold>
 
       <p className="autodj-status" role="status" data-testid="autodj-status">
         {tracks.length === 0
@@ -320,4 +326,19 @@ function fmt(bpm) {
   if (!(bpm > 0)) return "–";
   const r = Math.round(bpm * 10) / 10;
   return Number.isInteger(r) ? String(r) : r.toFixed(1);
+}
+
+/** The folded Auto DJ settings in one line: "Tempo: first track · Flowing keys · 16 bars · bridge". */
+function autoDjSummary(firstBpm) {
+  const t = autoDj.tempoChoice;
+  const tempo = t === "first" ? `first track${firstBpm ? ` (${fmt(firstBpm)})` : ""}` : t === "journey" ? "journey" : `${t} BPM`;
+  return [
+    `Tempo: ${tempo}`,
+    ORDER_BY[autoDj.orderBy],
+    `${autoDj.bars} bars`,
+    autoDj.bridge ? "echo bridge" : "",
+    autoDj.buildUps === "third" ? "build-up every third mix" : autoDj.buildUps === "every" ? "build-up every mix" : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
