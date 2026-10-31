@@ -6,9 +6,10 @@ import { AutoDjPanel } from "./components/AutoDjPanel.jsx";
 import { FilesPanel } from "./components/FilesPanel.jsx";
 import { BoothPanel } from "./components/BoothPanel.jsx";
 import { SamplerPanel } from "./components/SamplerPanel.jsx";
-import { UpdateStrip, InstallButton } from "./components/AppBar.jsx";
-import { app } from "./audio/app.js";
+import { UpdateStrip, AppMenu } from "./components/AppBar.jsx";
 import { decks, crossfader, setCrossfader } from "./audio/engine.js";
+import { autoDj } from "./audio/autodj.js";
+import { tabs, TABS, goTo } from "./audio/tabs.js";
 
 const SITE = "https://thedrift3r.com";
 const SOURCE = "https://github.com/DanceOnVibes/driftmix";
@@ -17,7 +18,10 @@ export function App() {
   // The crossfader lives in the engine, so the transition can move it too.
   const [, refresh] = useReducer((n) => n + 1, 0);
   useEffect(() => crossfader.subscribe(refresh), []);
+  useEffect(() => tabs.subscribe(refresh), []);
   useEffect(() => setCrossfader(0), []);
+  const tab = tabs.current;
+  const group = (id) => `tab-group${tab === id ? " tab-on" : ""}`;
 
   return (
     <div className="app">
@@ -29,17 +33,28 @@ export function App() {
             by The Drift3r
           </a>
         </div>
-        <nav className="jump" aria-label="Sections">
-          <a href="#autodj">Auto DJ</a>
-          <a href="#samples">Samples</a>
-          <a href="#booth">Vocal Booth</a>
-          <a href="#files">Files</a>
-          <InstallButton />
-        </nav>
+        <div className="top-right">
+          <nav className="jump" aria-label="Sections">
+            {TABS.slice(1).map((t) => (
+              <a
+                key={t.id}
+                href={`#${t.id}`}
+                onClick={(e) => {
+                  e.preventDefault();
+                  goTo(t.id);
+                }}
+              >
+                {t.id === "booth" ? "Vocal Booth" : t.label}
+              </a>
+            ))}
+          </nav>
+          <AppMenu />
+        </div>
         <p className="status">Two decks, BPM and key, match light, one-press transitions, Auto DJ, Samples, Vocal Booth and Files.</p>
       </header>
 
       <main>
+        <div className={group("decks")} data-tab="decks">
         <div className="decks">
           <DeckPanel deck={decks.a} title="Deck A" />
           <DeckPanel deck={decks.b} title="Deck B" />
@@ -69,18 +84,28 @@ export function App() {
             ? "The transition is doing the fade. The crossfader is yours again when it ends."
             : "Double-click the crossfader to centre it. Mixing works best on a laptop."}
         </p>
+        </div>
 
-        <AutoDjPanel />
-        <SamplerPanel />
-        <BoothPanel />
-        <FilesPanel />
+        <div className={group("autodj")} data-tab="autodj">
+          <AutoDjPanel />
+        </div>
+        <div className={group("samples")} data-tab="samples">
+          <SamplerPanel />
+        </div>
+        <div className={group("booth")} data-tab="booth">
+          <BoothPanel />
+        </div>
+        <div className={group("files")} data-tab="files">
+          <FilesPanel />
+        </div>
       </main>
+
+      <TabBar />
 
       <footer className="foot">
         <p className="promise">Your tracks and your voice never leave your computer. Nothing is uploaded.</p>
         <p>
-          Free and open source (AGPL-3.0) · <a href={SOURCE}>Source code</a> · <a href={`${SITE}/privacy`}>Privacy</a> · MP3
-          encoding by <a href="https://lame.sourceforge.io">LAME</a> (via lamejs, LGPL) · Version {app.version}
+          Free and open source (AGPL-3.0) · <a href={SOURCE}>Source code</a> · <a href={`${SITE}/privacy`}>Privacy</a> · More in the ⚙ menu
         </p>
         <p className="muted">
           © {new Date().getFullYear()} DanceOnVibes Limited. Registered in England and Wales, company no. 17423769.
@@ -88,5 +113,34 @@ export function App() {
         </p>
       </footer>
     </div>
+  );
+}
+
+/** Phones: one section at a time, picked here. Everything keeps playing in the others. */
+function TabBar() {
+  const [, refresh] = useReducer((n) => n + 1, 0);
+  useEffect(() => tabs.subscribe(refresh), []);
+  useEffect(() => autoDj.subscribe(refresh), []);
+  useEffect(() => decks.a.subscribe(refresh), []);
+  useEffect(() => decks.b.subscribe(refresh), []);
+  const tab = tabs.current;
+  // A small dot on a tab when something is going on there that you can't see.
+  const busy = { decks: decks.a.playing || decks.b.playing, autodj: autoDj.on };
+  return (
+    <nav className="tabbar" aria-label="Sections" data-testid="tabbar">
+      {TABS.map((t) => (
+        <button
+          key={t.id}
+          type="button"
+          className={`tab${tab === t.id ? " tab-active" : ""}`}
+          aria-current={tab === t.id ? "page" : undefined}
+          onClick={() => goTo(t.id)}
+          data-testid={`tab-${t.id}`}
+        >
+          {t.label}
+          {busy[t.id] && tab !== t.id && <span className="tab-dot" aria-label="(playing)" />}
+        </button>
+      ))}
+    </nav>
   );
 }

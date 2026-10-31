@@ -29,6 +29,8 @@ import {
 } from "../audio/files.js";
 import { ORDER_BY } from "../lib/setlist.js";
 import { UndoStrip } from "./UndoStrip.jsx";
+import { Fold } from "./Fold.jsx";
+import { goTo } from "../audio/tabs.js";
 import { shiftCamelot } from "../lib/match.js";
 import { autoDj, addTracks } from "../audio/autodj.js";
 
@@ -137,6 +139,7 @@ export function FilesPanel() {
         />
       </div>
 
+      <Fold id="files-settings" summary={filesSummary()}>
       <div className="fgrid">
         <fieldset className="fset">
           <legend>Output</legend>
@@ -238,6 +241,7 @@ export function FilesPanel() {
           <p className="muted fnote">BPM and key are also written into the tags, where DJ apps read them.</p>
         </fieldset>
       </div>
+      </Fold>
 
       {items.length === 0 ? (
         <p className="autodj-status">No files yet. Press Add files, or drop them here.</p>
@@ -338,7 +342,7 @@ export function FilesPanel() {
                   .filter(Boolean)
                   .join(" ") || "Nothing new to send.";
                 files.emit();
-                document.getElementById("autodj")?.scrollIntoView({ behavior: "smooth" });
+                goTo("autodj");
               }}
               data-testid="to-autodj"
             >
@@ -443,4 +447,20 @@ function describe(it) {
 
 function mb(bytes) {
   return `${(bytes / 1048576).toFixed(1)} MB`;
+}
+
+/** The folded Files settings in one line: "MP3 320 kbps · original rate · stereo · tags: The Drift3r". */
+function filesSummary() {
+  const s = files.settings;
+  const c = files.common;
+  return [
+    s.format === "mp3" ? `MP3 ${s.bitrate} kbps` : `WAV ${s.bitDepth}-bit`,
+    s.sampleRate === "original" ? "original rate" : `${Number(s.sampleRate) / 1000} kHz`,
+    s.channels,
+    s.loudness === "off" ? "" : `${s.loudness} LUFS`,
+    c.artist ? `artist: ${c.artist}` : "no artist set",
+    files.cover ? "cover" : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }

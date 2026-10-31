@@ -17,6 +17,7 @@
  * you are in the original file. After a transition a deck may play a
  * stretched copy at another tempo; `speed` converts between the two.
  */
+import { tidyName } from "../lib/files/naming.js";
 import { computePeaks } from "../lib/peaks.js";
 import { crossfadeGains, clamp, pressCue } from "../lib/mixer.js";
 import { shiftCamelot } from "../lib/match.js";
@@ -227,12 +228,12 @@ export class Deck {
     for (let c = 0; c < buffer.numberOfChannels; c++) channels.push(buffer.getChannelData(c));
     this.buffer = buffer;
     this.clearStretch();
-    this.name = file.name.replace(/\.[^.]+$/, "");
+    this.name = tidyName(file.name);
     this.peaks = computePeaks(channels, WAVEFORM_BARS);
     this.offset = 0;
     this.cue = 0;
     this.loop = null;
-    this.cueKey = cueKey(this.name, buffer.duration);
+    this.cueKey = cueKey(file.name.replace(/\.[^.]+$/, ""), buffer.duration); // the real name: cues saved before stay found
     this.hotCues = savedCues(this.cueKey);
     if (known) {
       this.analysis = { status: "done", tempo: known.tempo, key: known.key };

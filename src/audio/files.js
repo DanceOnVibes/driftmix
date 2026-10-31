@@ -12,7 +12,7 @@ import { retunePlan } from "../lib/files/retune.js";
 import { sniff } from "../lib/files/sniff.js";
 import { MP3_RATES } from "../lib/files/mp3.js";
 import { makeZip } from "../lib/files/zip.js";
-import { exportName, shortKey, safeName } from "../lib/files/naming.js";
+import { exportName, shortKey, safeName, tidyName } from "../lib/files/naming.js";
 import { orderTracks, ORDER_BY } from "../lib/setlist.js";
 
 const AUDIO_NAME = /\.(mp3|wav|flac|aiff?|m4a|aac|ogg|opus)$/i;
@@ -104,14 +104,9 @@ function clearZip() {
   files.zipUrl = null;
 }
 
-/** "Vortex of Your Music_222003103_225237910" → "Vortex of Your Music". */
+/** "07 Vortex of Your Music_222003103 (134 BPM, 2B).mp3" → "Vortex of Your Music" (see tidyName). */
 export function cleanTitle(fileName) {
-  return safeName(
-    fileName
-      .replace(/\.[^.]+$/, "")
-      .replace(/([_ -]\d{6,})+$/g, "")
-      .replace(/[_]+/g, " "),
-  );
+  return safeName(tidyName(fileName));
 }
 
 // ---- adding --------------------------------------------------------------

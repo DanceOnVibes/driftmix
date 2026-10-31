@@ -17,6 +17,7 @@
  *    with a "?" tempo get an 8-bar blend so the beats stay tight.
  *  - Touching a deck hands control back to you (Auto DJ switches off).
  */
+import { tidyName } from "../lib/files/naming.js";
 import { audioContext, decks, setCrossfader } from "./engine.js";
 import { analyzeBuffer, stretchBuffer } from "./analysis.js";
 import { mix, isActive, nowAndNext, transitionOptions, startTransition, cancelTransition, startBridge, startBuildUp, polish } from "./transition.js";
@@ -74,7 +75,7 @@ const planned = (plan) => Boolean(plan) && (plan.tempo !== 1 || plan.semitones !
  * @returns {{ added: number, updated: number }} updated: already there, brought up to date (sent from Files again)
  */
 export function addTracks(fileList) {
-  const entries = [...fileList].map((f) => (f instanceof Blob ? { file: f, name: f.name.replace(/\.[^.]+$/, "") } : f));
+  const entries = [...fileList].map((f) => (f instanceof Blob ? { file: f, name: tidyName(f.name) } : f));
   let added = 0;
   let updated = 0;
   for (const entry of entries) {
@@ -98,7 +99,7 @@ export function addTracks(fileList) {
     const track = {
       id: String(nextId++),
       file,
-      name: entry.name ?? file.name.replace(/\.[^.]+$/, ""),
+      name: entry.name ?? tidyName(file.name),
       status: "reading",
       tempo: null,
       key: null,
@@ -149,7 +150,7 @@ export function restoreTracks({ tracks, settings }) {
   const added = [];
   for (const s of tracks) {
     if (autoDj.tracks.some((t) => t.file === s.file)) continue;
-    const track = { id: String(nextId++), file: s.file, name: s.name, status: "reading", tempo: null, key: null, duration: 0, found: s.found ?? null, sourceDuration: s.duration || 0, plan: s.plan ?? NO_PLAN };
+    const track = { id: String(nextId++), file: s.file, name: tidyName(s.name), status: "reading", tempo: null, key: null, duration: 0, found: s.found ?? null, sourceDuration: s.duration || 0, plan: s.plan ?? NO_PLAN };
     if (track.found && track.sourceDuration) applyPlan(track);
     else reading = reading.then(() => readTrack(track));
     added.push(track);
