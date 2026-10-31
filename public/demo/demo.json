@@ -1,0 +1,8 @@
+{
+  "about": "The demo set: three tracks by DanceOnVibes – The Drift3r, free to listen to here. All rights reserved.",
+  "tracks": [
+    { "file": "draculas-land.mp3", "title": "Dracula's Land" },
+    { "file": "turn-it-up.mp3", "title": "Turn It Up" },
+    { "file": "age-is-just-a-number.mp3", "title": "Age Is Just A Number" }
+  ]
+}
