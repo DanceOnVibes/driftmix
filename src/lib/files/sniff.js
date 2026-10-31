@@ -2,7 +2,10 @@
  * What's inside an audio file before decoding it: the format, its own sample
  * rate, channels and (for MP3) bit rate. Used for "keep original" sample rate
  * and to show what each file is now.
- * @returns {{ format: string, sampleRate?: number, channels?: number, bitrate?: number, bitDepth?: number }}
+ * A VBR MP3 (the bit rate changes through the song, as Suno's do) starts with
+ * a small info frame whose own bit rate means nothing (often 64 kbps), so the
+ * real average is worked out from that frame's frame and byte counts.
+ * @returns {{ format: string, sampleRate?: number, channels?: number, bitrate?: number, bitDepth?: number, vbr?: boolean }}
  */
 export function sniff(bytes) {
   const b = bytes;
@@ -43,7 +46,29 @@ export function sniff(bytes) {
     const v1 = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320];
     const v2 = [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160];
     const channels = b[p + 3] >> 6 === 3 ? 1 : 2;
-    return { format: "MP3", sampleRate: rates[srIndex], channels, bitrate: (version === 3 ? v1 : v2)[brIndex] };
+    const sampleRate = rates[srIndex];
+    const out = { format: "MP3", sampleRate, channels, bitrate: (version === 3 ? v1 : v2)[brIndex] };
+    // Xing/Info (LAME) or VBRI (Fraunhofer) frame: VBR, with the real average.
+    const u32 = (i) => ((b[i] << 24) | (b[i + 1] << 16) | (b[i + 2] << 8) | b[i + 3]) >>> 0;
+    const side = version === 3 ? (channels === 1 ? 17 : 32) : channels === 1 ? 9 : 17;
+    const x = p + 4 + side;
+    const perFrame = version === 3 ? 1152 : 576;
+    let frames = 0;
+    let size = 0;
+    if (x + 16 <= b.length && (s(x, 4) === "Xing" || s(x, 4) === "Info")) {
+      const flags = u32(x + 4);
+      let o = x + 8;
+      if (flags & 1) frames = u32(o), (o += 4);
+      if (flags & 2) size = u32(o);
+      if (s(x, 4) === "Xing") out.vbr = true; // "Info" = constant bit rate, the header is right
+    } else if (p + 36 + 18 <= b.length && s(p + 36, 4) === "VBRI") {
+      size = u32(p + 36 + 10);
+      frames = u32(p + 36 + 14);
+      out.vbr = true;
+    }
+    if (out.vbr && frames > 0 && size > 0) out.bitrate = Math.round((size * 8) / ((frames * perFrame) / sampleRate) / 1000);
+    else if (out.vbr) delete out.bitrate; // unknown here: worked out from the file size once decoded
+    return out;
   }
   return { format: "Audio" };
 }

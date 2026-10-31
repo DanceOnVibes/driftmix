@@ -431,7 +431,7 @@ function describe(it) {
     parts.push(i.format);
     if (i.sampleRate) parts.push(`${i.sampleRate / 1000} kHz`);
     if (i.channels) parts.push(i.channels === 1 ? "mono" : "stereo");
-    if (i.bitrate) parts.push(`${i.bitrate} kbps`);
+    if (i.bitrate) parts.push(i.vbr ? `about ${i.bitrate} kbps (VBR)` : `${i.bitrate} kbps`);
     if (i.bitDepth) parts.push(`${i.bitDepth}-bit`);
   }
   if (it.duration) parts.push(formatTime(it.duration));

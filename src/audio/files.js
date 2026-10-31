@@ -174,6 +174,8 @@ async function inspect(it) {
     it.duration = buffer.duration;
     if (!it.info.channels) it.info.channels = buffer.numberOfChannels;
     if (!it.info.sampleRate) it.info.sampleRate = buffer.sampleRate;
+    // A VBR MP3 without its counts: the average from the file size and length.
+    if (it.info.vbr && !it.info.bitrate && buffer.duration > 0) it.info.bitrate = Math.round((bytes.byteLength * 8) / buffer.duration / 1000);
     const result = await analyzeBuffer(buffer);
     it.found = { tempo: result.tempo ?? null, key: result.key ?? null }; // the full reading, for Auto DJ
     it.analysis = {

@@ -177,3 +177,24 @@ test("streamed MP3: chunks in, a valid 320 kbps file out, the right length", asy
   const seconds = s.frames / sr;
   assert.ok(Math.abs(s.bytes / ((320000 / 8) * seconds) - 1) < 0.05, `${s.bytes} bytes for ${seconds} s`);
 });
+
+test("VBR MP3 (like Suno's): the real average bit rate, not the info frame's 64 kbps", () => {
+  // MPEG-1 Layer III, 48 kHz, stereo, header bit rate index 5 (64 kbps), as LAME writes the Xing frame.
+  const b = new Uint8Array(4 + 32 + 16 + 400);
+  b.set([0xff, 0xfb, 0x54, 0x00]); // 0x54: bit rate 64, 48 kHz
+  const x = 4 + 32;
+  b.set([0x58, 0x69, 0x6e, 0x67], x); // "Xing"
+  const be = (v, o) => b.set([(v >>> 24) & 255, (v >>> 16) & 255, (v >>> 8) & 255, v & 255], o);
+  be(3, x + 4); // frames + bytes present
+  // 5:17 at 48 kHz = 13 208 frames of 1152 samples; 6.8 MB of audio ≈ 172 kbps.
+  be(13208, x + 8);
+  be(6795 * 1024, x + 12);
+  const info = sniff(b);
+  assert.equal(info.vbr, true);
+  assert.ok(Math.abs(info.bitrate - 175) <= 3, `about 175 kbps (${info.bitrate})`);
+  // "Info" = a constant bit rate file: the header's bit rate stands.
+  b.set([0x49, 0x6e, 0x66, 0x6f], x);
+  const cbr = sniff(b);
+  assert.equal(cbr.vbr, undefined);
+  assert.equal(cbr.bitrate, 64);
+});
