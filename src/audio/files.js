@@ -13,6 +13,7 @@ import { sniff } from "../lib/files/sniff.js";
 import { MP3_RATES } from "../lib/files/mp3.js";
 import { makeZip } from "../lib/files/zip.js";
 import { exportName, shortKey, safeName } from "../lib/files/naming.js";
+import { orderTracks, ORDER_BY } from "../lib/setlist.js";
 
 const AUDIO_NAME = /\.(mp3|wav|flac|aiff?|m4a|aac|ogg|opus)$/i;
 const SAVED = "driftmix.files.v1";
@@ -28,6 +29,7 @@ const defaults = {
     trim: true,
     numbering: true,
     infoInName: true,
+    orderBy: "tempo-up", // what "Put in order" puts first (see ORDER_BY)
   },
   common: { artist: "", album: "", year: String(new Date().getFullYear()), genre: "", copyright: "All rights reserved", comment: "" },
 };
@@ -303,11 +305,58 @@ export function clearAll() {
 /** Bring back the list that was just cleared (within 10 seconds). */
 export function undoClear() {
   const u = files.undo;
-  if (!u) return;
-  files.items = [...u.items, ...files.items];
+  if (!u || files.busy) return;
   files.undo = null;
+  if (u.order) {
+    // Undo "Put in order": back where they were (anything added since stays at the end).
+    const rank = new Map(u.order.map((id, i) => [id, i]));
+    files.items = [...files.items].sort((a, b) => (rank.get(a.id) ?? 1e9) - (rank.get(b.id) ?? 1e9));
+    files.message = "Back to the order you had.";
+    staleOutputs();
+    return;
+  }
+  files.items = [...u.items, ...files.items];
   files.message = `Back: ${u.items.length} track${u.items.length === 1 ? "" : "s"}.`;
   files.emit();
+}
+
+/** What "Put in order" puts first (doesn't touch finished files). */
+export function setOrderBy(value) {
+  if (!ORDER_BY[value]) return;
+  files.settings = { ...files.settings, orderBy: value };
+  save();
+  files.emit();
+}
+
+/**
+ * Put the list in order by tempo (slow → fast or fast → slow) or by flowing
+ * keys, using the BPM and key each file will come out with. The track
+ * numbers follow the new order. Undo puts the old order back.
+ */
+export function orderFiles() {
+  if (files.busy) return;
+  const before = files.items.map((it) => it.id);
+  const read = files.items.filter((it) => it.analysis);
+  const rest = files.items.filter((it) => !it.analysis);
+  const byId = new Map(read.map((it) => [it.id, it]));
+  const plain = read.map((it) => {
+    const p = planFor(it);
+    return { id: it.id, bpm: p.bpm ?? it.analysis.bpm, camelot: p.camelot ?? it.analysis.camelot };
+  });
+  const how = files.settings.orderBy;
+  const { order, left } = orderTracks(plain, how);
+  files.items = [...order.map((o) => byId.get(o.id)), ...left.map((o) => byId.get(o.id)), ...rest];
+  const first = order[0];
+  const last = order[order.length - 1];
+  const noBeat = left.length ? ` No beat found in ${left.length}: moved to the end.` : "";
+  files.message =
+    order.length < 2
+      ? ""
+      : how === "keys"
+        ? `In order for flowing keys.${noBeat}`
+        : `In order by tempo: ${fmtBpm(first.bpm)} → ${fmtBpm(last.bpm)} BPM, keys smoothed where tempos are within 1 BPM.${noBeat}`;
+  if (files.items.some((it, i) => it.id !== before[i])) offerUndo(files, { order: before }, "Put in a new order.");
+  staleOutputs();
 }
 
 /**

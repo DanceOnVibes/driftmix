@@ -24,7 +24,10 @@ import {
   roundAll,
   BPM_SAFE,
   undoClear,
+  setOrderBy,
+  orderFiles,
 } from "../audio/files.js";
+import { ORDER_BY } from "../lib/setlist.js";
 import { UndoStrip } from "./UndoStrip.jsx";
 import { shiftCamelot } from "../lib/match.js";
 import { autoDj, addTracks } from "../audio/autodj.js";
@@ -99,6 +102,26 @@ export function FilesPanel() {
           data-testid="round-all"
         >
           Round every BPM
+        </button>
+        <label className="tempo-choice">
+          <span>Order by</span>
+          <select value={s.orderBy} onChange={(e) => setOrderBy(e.target.value)} disabled={files.busy} data-testid="files-order-by">
+            {Object.entries(ORDER_BY).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          type="button"
+          className="btn btn-ghost"
+          onClick={orderFiles}
+          disabled={files.busy || items.filter((it) => it.analysis?.bpm).length < 2}
+          title="Put the list in this order; the track numbers follow"
+          data-testid="files-order"
+        >
+          Put in order
         </button>
         <input
           ref={inputRef}

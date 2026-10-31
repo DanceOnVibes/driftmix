@@ -20,7 +20,7 @@
 import { audioContext, decks, setCrossfader } from "./engine.js";
 import { analyzeBuffer, stretchBuffer } from "./analysis.js";
 import { mix, isActive, nowAndNext, transitionOptions, startTransition, cancelTransition, startBridge, startBuildUp, polish } from "./transition.js";
-import { orderSet, orderJourney, fitsTempo, mixOutIn, mixOutPoint } from "../lib/setlist.js";
+import { orderSet, orderTracks, fitsTempo, mixOutIn, mixOutPoint, ORDER_BY } from "../lib/setlist.js";
 import { chooseMix, settlePoint } from "../lib/bridge.js";
 import { tempoMatch, TEMPO_AMBER } from "../lib/match.js";
 import { retunedReading } from "../lib/files/retune.js";
@@ -41,6 +41,7 @@ export const autoDj = {
   setBpm: null, // the set's locked tempo while running (null on a journey)
   bridge: true, // echo-out bridge when tracks can't blend (off = skip them)
   buildUps: "off", // "off" | "third" (every third mix) | "every": a build-up instead of a blend
+  orderBy: "keys", // what "Order" puts first: "keys" | "tempo-up" | "tempo-down"
   mixes: 0, // mixes made in this set (for "every third")
   onDeck: { a: null, b: null }, // which playlist track is on each deck
   message: "",
@@ -159,6 +160,7 @@ export function restoreTracks({ tracks, settings }) {
     if (BAR_OK(settings.bars)) autoDj.bars = settings.bars;
     if (typeof settings.bridge === "boolean") autoDj.bridge = settings.bridge;
     if (["off", "third", "every"].includes(settings.buildUps)) autoDj.buildUps = settings.buildUps;
+    if (ORDER_BY[settings.orderBy]) autoDj.orderBy = settings.orderBy;
   }
   autoDj.emit();
   return added.length;
@@ -196,27 +198,54 @@ export function clearTracks() {
 export function undoClear() {
   const u = autoDj.undo;
   if (!u || autoDj.on) return;
-  const back = u.tracks.filter((t) => !autoDj.tracks.some((x) => x.file === t.file));
-  autoDj.tracks = [...back, ...autoDj.tracks];
+  if (u.order) {
+    // Undo an Order: the tracks go back where they were (new ones stay at the end).
+    const rank = new Map(u.order.map((id, i) => [id, i]));
+    autoDj.tracks = [...autoDj.tracks].sort((a, b) => (rank.get(a.id) ?? 1e9) - (rank.get(b.id) ?? 1e9));
+    autoDj.message = "Back to the order you had.";
+  } else {
+    const back = u.tracks.filter((t) => !autoDj.tracks.some((x) => x.file === t.file));
+    autoDj.tracks = [...back, ...autoDj.tracks];
+  }
   autoDj.undo = null;
   autoDj.emit();
 }
 
-/** "Order for a smooth set": flowing keys, first fitting track stays first. */
+export function setOrderBy(value) {
+  if (!ORDER_BY[value]) return;
+  autoDj.orderBy = value;
+  autoDj.emit();
+}
+
+/**
+ * "Order for a smooth set", by what the DJ picked: tempo first (slow → fast
+ * or fast → slow, keys smoothed where tempos are within 1 BPM), or flowing
+ * keys (first fitting track stays first). Undo puts the old order back.
+ */
 export function sortSet() {
   if (autoDj.on) return;
+  const before = autoDj.tracks.map((t) => t.id);
   const ready = autoDj.tracks.filter((t) => t.status === "ready");
   const others = autoDj.tracks.filter((t) => t.status !== "ready");
-  if (autoDj.tempoChoice === "journey") {
-    const j = orderJourney(ready.map((t) => ({ id: t.id, bpm: t.tempo?.bpm ?? null, camelot: t.key?.camelot ?? null })));
-    const byId = new Map(ready.map((t) => [t.id, t]));
+  const byId = new Map(ready.map((t) => [t.id, t]));
+  const plain = ready.map((t) => ({ id: t.id, bpm: t.tempo?.bpm ?? null, camelot: t.key?.camelot ?? null }));
+  const offer = () => {
+    if (autoDj.tracks.some((t, i) => t.id !== before[i])) offerUndo(autoDj, { order: before }, "Put in a new order.");
+  };
+  if (autoDj.orderBy !== "keys" || autoDj.tempoChoice === "journey") {
+    // Tempo first, or keys with every track at its own tempo (a journey).
+    const j = orderTracks(plain, autoDj.orderBy);
     autoDj.tracks = [...j.order.map((o) => byId.get(o.id)), ...j.left.map((o) => byId.get(o.id)), ...others];
     const first = j.order[0];
     const last = j.order[j.order.length - 1];
+    const noBeat = j.left.length ? ` No beat found in ${j.left.length}: moved to the end.` : "";
     autoDj.message =
-      j.order.length > 1
-        ? `Ordered as a tempo journey: ${fmt(first.bpm)} → ${fmt(last.bpm)} BPM, keys smoothed where tempos are close.${j.left.length ? ` No beat found in ${j.left.length}: moved to the end.` : ""}`
-        : "";
+      j.order.length < 2
+        ? ""
+        : autoDj.orderBy === "keys"
+          ? `Ordered for flowing keys, each track at its own tempo.${noBeat}`
+          : `Ordered by tempo: ${fmt(first.bpm)} → ${fmt(last.bpm)} BPM, keys smoothed where tempos are within 1 BPM.${noBeat}`;
+    offer();
     autoDj.emit();
     return;
   }
@@ -225,7 +254,6 @@ export function sortSet() {
     ready.map((t) => ({ id: t.id, bpm: t.tempo?.bpm ?? null, camelot: t.key?.camelot ?? null })),
     chosen,
   );
-  const byId = new Map(ready.map((t) => [t.id, t]));
   const leftTracks = left.map((o) => byId.get(o.id));
   autoDj.tracks = [...order.map((o) => byId.get(o.id)), ...leftTracks, ...others];
   const bridged = leftTracks.filter((t) => t.tempo && autoDj.bridge);
@@ -240,6 +268,7 @@ export function sortSet() {
     : order.length > 1
       ? `Ordered for flowing keys, all at ${fmt(setBpm)} BPM.`
       : "";
+  offer();
   autoDj.emit();
 }
 

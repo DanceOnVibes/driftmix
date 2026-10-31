@@ -1,6 +1,6 @@
 import { useEffect, useReducer, useRef, useState } from "react";
 import { formatTime } from "../lib/mixer.js";
-import { stepCost } from "../lib/setlist.js";
+import { stepCost, ORDER_BY } from "../lib/setlist.js";
 import { BAR_CHOICES } from "../lib/transition.js";
 import { mix } from "../audio/transition.js";
 import { decks } from "../audio/engine.js";
@@ -26,6 +26,7 @@ import {
   setBridge,
   needsBridge,
   setBuildUps,
+  setOrderBy,
   undoClear,
 } from "../audio/autodj.js";
 
@@ -145,6 +146,16 @@ export function AutoDjPanel() {
             {TEMPOS.map((n) => (
               <option key={n} value={String(n)}>
                 {n} BPM
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="tempo-choice">
+          <span>Order by</span>
+          <select value={autoDj.orderBy} onChange={(e) => setOrderBy(e.target.value)} disabled={autoDj.on} data-testid="order-by">
+            {Object.entries(ORDER_BY).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
               </option>
             ))}
           </select>
