@@ -23,7 +23,9 @@ import {
   setShift,
   roundAll,
   BPM_SAFE,
+  undoClear,
 } from "../audio/files.js";
+import { UndoStrip } from "./UndoStrip.jsx";
 import { shiftCamelot } from "../lib/match.js";
 import { autoDj, addTracks } from "../audio/autodj.js";
 
@@ -327,6 +329,7 @@ export function FilesPanel() {
           )}
         </div>
       )}
+      <UndoStrip undo={files.undo} onUndo={undoClear} testid="files-undo" />
       {files.message && (
         <p className="autodj-note" role="status" data-testid="files-message">
           {files.message}

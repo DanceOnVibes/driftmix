@@ -18,6 +18,7 @@ import { snapTo, sampleRange, cutSample, nextBeatTime, sampleName } from "../lib
 import { encodeWav } from "../lib/files/wav.js";
 import { makeZip } from "../lib/files/zip.js";
 import { shortKey } from "../lib/files/naming.js";
+import { offerUndo } from "./files.js";
 
 export const PAD_COUNT = 8;
 
@@ -34,6 +35,7 @@ export const sampler = {
   buildUpFrom: "incoming", // the Build-up snippet: "incoming" | "outgoing" | "pad:<n>"
   playing: new Set(), // pad indexes sounding now
   message: "",
+  undo: null, // the pad just cleared, for 10 seconds
   listeners: new Set(),
   subscribe(listener) {
     this.listeners.add(listener);
@@ -216,10 +218,23 @@ function padLabel(s) {
 
 export function clearPad(i) {
   stopPad(i);
+  if (sampler.pads[i]) offerUndo(sampler, { index: i, pad: sampler.pads[i] }, `Cleared pad ${i + 1}.`);
   sampler.pads[i] = null;
   sampler.padsVersion++;
   if (sampler.buildUpFrom === `pad:${i}`) sampler.buildUpFrom = "incoming";
   cache.delete(i);
+  sampler.emit();
+}
+
+/** Bring back the pad that was just cleared (within 10 seconds), if its place is still free. */
+export function undoClear() {
+  const u = sampler.undo;
+  if (!u) return;
+  const i = sampler.pads[u.index] ? sampler.pads.indexOf(null) : u.index;
+  if (i < 0) return;
+  sampler.pads[i] = u.pad;
+  sampler.padsVersion++;
+  sampler.undo = null;
   sampler.emit();
 }
 

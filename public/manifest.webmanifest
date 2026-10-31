@@ -1,0 +1,16 @@
+{
+  "name": "DriftMix by The Drift3r",
+  "short_name": "DriftMix",
+  "description": "Free browser DJ tool: two decks, BPM and key, one-press transitions, Auto DJ, Samples, Vocal Booth and Files. Your music never leaves your device.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#050403",
+  "theme_color": "#050403",
+  "icons": [
+    { "src": "./icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

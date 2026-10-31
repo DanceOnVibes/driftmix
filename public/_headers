@@ -1,9 +1,21 @@
 # Security rules Cloudflare adds to every page.
 # Content-Security-Policy = the only places the page may load things from.
 # Nothing is fetched from other sites: tracks are read from the computer only.
+# The microphone is allowed for this site only (the Vocal Booth asks first).
 
 /*
   Content-Security-Policy: default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; connect-src 'self' https://cloudflareinsights.com; img-src 'self' data: blob:; media-src 'self' blob:; worker-src 'self' blob:; style-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'; upgrade-insecure-requests
   Referrer-Policy: strict-origin-when-cross-origin
   X-Content-Type-Options: nosniff
-  Permissions-Policy: camera=(), microphone=(), geolocation=(), interest-cohort=()
+  Permissions-Policy: camera=(), microphone=(self), geolocation=(), interest-cohort=()
+
+# The page, the app manifest and the service worker are always checked for a
+# newer version (everything else has the version in its file name).
+/
+  Cache-Control: no-cache
+/index.html
+  Cache-Control: no-cache
+/sw.js
+  Cache-Control: no-cache
+/manifest.webmanifest
+  Cache-Control: no-cache

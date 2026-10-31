@@ -5,7 +5,7 @@ import { useEffect, useReducer, useRef } from "react";
  * a white playhead line and a small marker at the cue point.
  * Click or tap anywhere on it to jump there.
  */
-export function Waveform({ peaks, progress, cue, onSeek, label }) {
+export function Waveform({ peaks, progress, cue, onSeek, label, hotCues = [], loop = null }) {
   const canvasRef = useRef(null);
   // Redraw when the window (and so the canvas) changes size.
   const [size, resized] = useReducer((n) => n + 1, 0);
@@ -37,6 +37,11 @@ export function Waveform({ peaks, progress, cue, onSeek, label }) {
 
     const bars = peaks.max.length;
     const playedX = progress * width;
+    // A loop that's playing: a light band behind the waveform.
+    if (loop) {
+      ctx.fillStyle = "rgba(120, 200, 160, 0.22)";
+      ctx.fillRect(loop.from * width, 0, Math.max(2, (loop.to - loop.from) * width), height);
+    }
     for (let x = 0; x < width; x++) {
       const i = Math.min(bars - 1, Math.floor((x / width) * bars));
       const top = mid - peaks.max[i] * mid * 0.95;
@@ -55,10 +60,23 @@ export function Waveform({ peaks, progress, cue, onSeek, label }) {
     ctx.closePath();
     ctx.fill();
 
+    // Hot cues: a numbered tag at the bottom.
+    ctx.font = "600 10px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    hotCues.forEach((c, i) => {
+      if (c === null || c === undefined) return;
+      const x = c * width;
+      ctx.fillStyle = "#78c8a0";
+      ctx.fillRect(Math.round(x), height - 14, 1, 14);
+      ctx.fillRect(Math.round(x) - 6, height - 14, 12, 12);
+      ctx.fillStyle = "#000";
+      ctx.fillText(String(i + 1), Math.round(x), height - 4);
+    });
+
     // Playhead.
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(Math.round(playedX) - 1, 0, 2, height);
-  }, [peaks, progress, cue, size]);
+  }, [peaks, progress, cue, size, hotCues, loop]);
 
   function seekFrom(event) {
     if (!peaks) return;

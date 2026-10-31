@@ -6,6 +6,8 @@ import { mix } from "../audio/transition.js";
 import { decks } from "../audio/engine.js";
 import { files, filesForAutoDj } from "../audio/files.js";
 import { SetRecorder } from "./SetRecorder.jsx";
+import { UndoStrip } from "./UndoStrip.jsx";
+import { demo, playDemo } from "../audio/demo.js";
 import {
   autoDj,
   addTracks,
@@ -24,6 +26,7 @@ import {
   setBridge,
   needsBridge,
   setBuildUps,
+  undoClear,
 } from "../audio/autodj.js";
 
 const TEMPOS = [120, 122, 124, 125, 126, 128, 130, 132, 134, 136, 138, 140, 145, 150];
@@ -38,7 +41,7 @@ const STEP_WORDS = { green: "flows", amber: "mixable", red: "clash" };
 export function AutoDjPanel() {
   const [, refresh] = useReducer((n) => n + 1, 0);
   useEffect(() => {
-    const offs = [autoDj.subscribe(refresh), mix.subscribe(refresh), decks.a.subscribe(refresh), decks.b.subscribe(refresh), files.subscribe(refresh)];
+    const offs = [autoDj.subscribe(refresh), mix.subscribe(refresh), decks.a.subscribe(refresh), decks.b.subscribe(refresh), files.subscribe(refresh), demo.subscribe(refresh)];
     return () => offs.forEach((off) => off());
   }, []);
   const inputRef = useRef(null);
@@ -107,6 +110,11 @@ export function AutoDjPanel() {
         <button type="button" className="btn btn-ghost" onClick={() => inputRef.current?.click()}>
           Add tracks
         </button>
+        {tracks.length === 0 && !autoDj.on && (demo.status === "ready" || demo.status === "loading") && (
+          <button type="button" className="btn btn-gold" onClick={() => void playDemo()} disabled={demo.status === "loading"} data-testid="demo">
+            {demo.status === "loading" ? "Loading the demo…" : `Hear a demo mix (${demo.tracks.length} tracks by The Drift3r)`}
+          </button>
+        )}
         {tracks.length === 0 && fromFiles.length > 0 && (
           <button type="button" className="btn btn-ghost" onClick={() => addTracks(filesForAutoDj())} data-testid="from-files">
             Use my {fromFiles.length} from Files
@@ -274,6 +282,7 @@ export function AutoDjPanel() {
           Clear the playlist
         </button>
       )}
+      <UndoStrip undo={autoDj.undo} onUndo={undoClear} testid="autodj-undo" />
     </section>
   );
 }
