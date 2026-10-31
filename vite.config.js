@@ -26,7 +26,7 @@ function serviceWorker() {
 // Vite builds the app into the dist folder, which Cloudflare serves.
 export default defineConfig({
   // Relative paths, so the app works at any address
-  // (a preview link today, thedrift3r.com/driftmix at launch).
+  // (driftmix.app, the workers.dev address and branch preview links).
   base: "./",
   // React's JSX without an extra plugin.
   esbuild: { jsx: "automatic" },

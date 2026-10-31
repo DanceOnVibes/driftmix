@@ -2,6 +2,8 @@
 
 Free, simple DJ transition tool by [The Drift3r](https://thedrift3r.com). Load two tracks, see BPM and Camelot key, and blend them beat-matched with one click. Runs in your browser; your music never leaves your computer.
 
+**Live at [driftmix.app](https://driftmix.app).**
+
 Built under DanceOnVibes Limited. Free and open source under the AGPL-3.0.
 
 ## Where it is up to
@@ -18,8 +20,8 @@ Built under DanceOnVibes Limited. Free and open source under the AGPL-3.0.
 | 5d | Files: exact BPM, key shift, tempo-drift check | Done |
 | 6 | Vocal Booth: record your voice over a beat, clean and natural | Done |
 | 6b | Pitch correction you control (amount and speed) | Done |
-| 7 | Echo-out bridge, tempo journey, record the set | **This version** |
-| 6 | Launch at thedrift3r.com/driftmix | Next |
+| 7 | Echo-out bridge, tempo journey, record the set | Done |
+| 8 | Launch at driftmix.app | Done |
 
 ## How it works
 
