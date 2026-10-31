@@ -84,7 +84,7 @@ function snapshot() {
     tracks: autoDj.tracks
       .filter((t) => t.status !== "failed")
       .map((t) => ({ key: need(t.file), name: t.name, plan: t.plan, found: t.found, duration: t.sourceDuration })),
-    settings: { tempoChoice: autoDj.tempoChoice, bars: autoDj.bars, bridge: autoDj.bridge, buildUps: autoDj.buildUps },
+    settings: { tempoChoice: autoDj.tempoChoice, bars: autoDj.bars, bridge: autoDj.bridge, buildUps: autoDj.buildUps, orderBy: autoDj.orderBy },
   };
   return { fileList, playlist, audio };
 }

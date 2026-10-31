@@ -1,7 +1,7 @@
 // Auto DJ set planning tests. Run with: npm test
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { orderSet, stepCost, fitsTempo, mixOutIn, mixOutPoint } from "./setlist.js";
+import { orderSet, orderTracks, stepCost, fitsTempo, mixOutIn, mixOutPoint } from "./setlist.js";
 
 const t = (id, bpm, camelot) => ({ id, bpm, camelot });
 
@@ -74,4 +74,29 @@ test("mix-out point: last 8-bar phrase line that leaves room for the blend", () 
   assert.ok(p + 64 * beat <= 240 - 4 * beat, "blend fits before the end");
   assert.ok(p + 32 * beat + 64 * beat > 240 - 4 * beat, "and it's the last such line");
   assert.equal(mixOutPoint({ firstBeat: 0.2, bpm: 128, duration: 20, bars: 16 }), null, "too short");
+});
+
+test("order by tempo: tempo first (slow → fast or fast → slow), keys only break near-ties", () => {
+  const t = (id, bpm, camelot) => ({ id, bpm, camelot });
+  // The album from the chat: keys alone would pair the 6B tracks; tempo first must not.
+  const album = [t("mothers", 137.6, "6B"), t("door", 131.4, "6B"), t("heart", 133.7, "8A"), t("wave", 131.2, "2B"), t("angels", 144, "10B"), t("none", null, "8A")];
+  const up = orderTracks(album, "tempo-up");
+  assert.deepEqual(up.order.map((o) => o.id).slice(-3), ["heart", "mothers", "angels"]);
+  for (let i = 1; i < up.order.length; i++) assert.ok(up.order[i].bpm >= up.order[i - 1].bpm - 1, "climbs (never drops more than 1 BPM)");
+  assert.deepEqual(up.left.map((o) => o.id), ["none"], "no tempo: to the end");
+  const down = orderTracks(album, "tempo-down");
+  assert.equal(down.order[0].id, "angels");
+  for (let i = 1; i < down.order.length; i++) assert.ok(down.order[i].bpm <= down.order[i - 1].bpm + 1, "falls");
+});
+
+test("order by keys at any tempo: nothing is left out for being too fast or slow", () => {
+  const t = (id, bpm, camelot) => ({ id, bpm, camelot });
+  const { order, left } = orderTracks([t("a", 124, "8A"), t("far", 150, "9A"), t("b", 128, "3B"), t("c", 131, "8A")], "keys");
+  assert.equal(order.length, 4);
+  assert.equal(left.length, 0);
+  assert.equal(order[0].id, "a", "the first track stays first");
+  assert.equal(stepCost(order[0], order[1]), 0, "a perfect key match next");
+  assert.equal(order[order.length - 1].id, "b", "the clashing key goes last");
+  // The locked-tempo set still leaves the far one out.
+  assert.deepEqual(orderSet([t("a", 124, "8A"), t("far", 150, "9A")]).left.map((o) => o.id), ["far"]);
 });

@@ -43,16 +43,19 @@ export function fitsTempo(track, setBpm) {
 /**
  * @param {SetTrack[]} tracks  in the current order; the first one that fits starts the set
  * @param {number} [chosenBpm]  the set tempo; default: the first track's
+ * @param {{ anyTempo?: boolean }} [options]  anyTempo: every track with a beat
+ *   joins, whatever its tempo (each plays at its own, e.g. an album or a journey)
  * @returns {{ order: SetTrack[], left: SetTrack[], cost: number, setBpm: number|null }}
  *   order: the set; left: tracks that can't join (tempo too far, or no tempo found)
  */
-export function orderSet(tracks, chosenBpm = null) {
+export function orderSet(tracks, chosenBpm = null, { anyTempo = false } = {}) {
   if (!tracks.length) return { order: [], left: [], cost: 0, setBpm: chosenBpm };
-  const setBpm = chosenBpm ?? tracks.find((t) => t.bpm > 0)?.bpm ?? null;
-  const first = setBpm ? tracks.find((t) => fitsTempo(t, setBpm)) : null;
+  const setBpm = anyTempo ? null : chosenBpm ?? tracks.find((t) => t.bpm > 0)?.bpm ?? null;
+  const joins = (t) => (anyTempo ? t.bpm > 0 : fitsTempo(t, setBpm));
+  const first = anyTempo || setBpm ? tracks.find(joins) : null;
   if (!first) return { order: [], left: [...tracks], cost: 0, setBpm };
-  const fits = tracks.filter((t) => t !== first && fitsTempo(t, setBpm));
-  const left = tracks.filter((t) => t !== first && !fitsTempo(t, setBpm));
+  const fits = tracks.filter((t) => t !== first && joins(t));
+  const left = tracks.filter((t) => t !== first && !joins(t));
 
   // Nearest neighbour from the first track.
   const order = [first];
@@ -104,14 +107,16 @@ export function mixOutPoint({ firstBeat, bpm, duration, bars, phraseBars = 8, ta
 }
 
 /**
- * Tempo journey order: slowest to fastest, so the set climbs (128 → 135).
- * Where two tracks are within 1 BPM of each other, their order is free, and
- * swaps that make the keys flow better are taken.
+ * Tempo order: slowest to fastest, so the set climbs (128 → 135), or
+ * fastest to slowest with `down`. Tempo comes first; where two tracks are
+ * within 1 BPM of each other, their order is free, and swaps that make the
+ * keys flow better are taken.
  * @param {SetTrack[]} tracks
+ * @param {{ down?: boolean }} [options]
  * @returns {{ order: SetTrack[], left: SetTrack[], cost: number }}  left: no tempo found
  */
-export function orderJourney(tracks) {
-  const order = tracks.filter((t) => t.bpm > 0).sort((a, b) => a.bpm - b.bpm);
+export function orderJourney(tracks, { down = false } = {}) {
+  const order = tracks.filter((t) => t.bpm > 0).sort((a, b) => (down ? b.bpm - a.bpm : a.bpm - b.bpm));
   const left = tracks.filter((t) => !(t.bpm > 0));
   let improved = true;
   while (improved) {
@@ -127,4 +132,26 @@ export function orderJourney(tracks) {
     }
   }
   return { order, left, cost: pathCost(order) };
+}
+
+/** The ways a list can be put in order (Auto DJ and Files). */
+export const ORDER_BY = {
+  "tempo-up": "Tempo, slow → fast",
+  "tempo-down": "Tempo, fast → slow",
+  keys: "Flowing keys",
+};
+
+/**
+ * Put tracks in order by tempo or by keys, every track at its own tempo
+ * (an album, a journey). Tracks without a tempo go to the end.
+ * @param {SetTrack[]} tracks
+ * @param {"tempo-up"|"tempo-down"|"keys"} how
+ * @returns {{ order: SetTrack[], left: SetTrack[], cost: number }}
+ */
+export function orderTracks(tracks, how) {
+  if (how === "keys") {
+    const { order, left, cost } = orderSet(tracks, null, { anyTempo: true });
+    return { order, left, cost };
+  }
+  return orderJourney(tracks, { down: how === "tempo-down" });
 }
