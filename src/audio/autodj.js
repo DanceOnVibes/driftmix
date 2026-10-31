@@ -24,6 +24,7 @@ import { orderSet, orderJourney, fitsTempo, mixOutIn, mixOutPoint } from "../lib
 import { chooseMix, settlePoint } from "../lib/bridge.js";
 import { tempoMatch, TEMPO_AMBER } from "../lib/match.js";
 import { retunedReading } from "../lib/files/retune.js";
+import { offerUndo } from "./files.js";
 
 const AUDIO_NAME = /\.(mp3|wav|flac|aiff?|m4a|aac|ogg|opus)$/i;
 
@@ -43,6 +44,7 @@ export const autoDj = {
   mixes: 0, // mixes made in this set (for "every third")
   onDeck: { a: null, b: null }, // which playlist track is on each deck
   message: "",
+  undo: null, // the playlist just cleared, for 10 seconds
   listeners: new Set(),
   subscribe(listener) {
     this.listeners.add(listener);
@@ -183,8 +185,20 @@ export function moveTrack(id, step) {
 
 export function clearTracks() {
   if (autoDj.on) return;
+  const was = autoDj.tracks;
   autoDj.tracks = [];
   autoDj.message = "";
+  offerUndo(autoDj, { tracks: was }, `Cleared the playlist (${was.length} track${was.length === 1 ? "" : "s"}).`);
+  autoDj.emit();
+}
+
+/** Bring back the playlist that was just cleared (within 10 seconds). */
+export function undoClear() {
+  const u = autoDj.undo;
+  if (!u || autoDj.on) return;
+  const back = u.tracks.filter((t) => !autoDj.tracks.some((x) => x.file === t.file));
+  autoDj.tracks = [...back, ...autoDj.tracks];
+  autoDj.undo = null;
   autoDj.emit();
 }
 

@@ -21,6 +21,32 @@ import { computePeaks } from "../lib/peaks.js";
 import { crossfadeGains, clamp, pressCue } from "../lib/mixer.js";
 import { shiftCamelot } from "../lib/match.js";
 import { analyzeBuffer, stretchBuffer } from "./analysis.js";
+import { HOT_CUES, quantize, jumpTarget, loopAt, resizeLoop, wrapPosition, cueKey } from "../lib/cues.js";
+
+const CUES_SAVED = "driftmix.cues.v1";
+const JUMP_LEAD = 0.01; // seconds: a jump is scheduled this far ahead, so it can cross-fade
+/** Hot cues kept on this device, per track. */
+function savedCues(key) {
+  try {
+    const all = JSON.parse(localStorage.getItem(CUES_SAVED) || "{}");
+    const c = all[key];
+    return Array.isArray(c) ? Array.from({ length: HOT_CUES }, (_, i) => (typeof c[i] === "number" ? c[i] : null)) : Array(HOT_CUES).fill(null);
+  } catch {
+    return Array(HOT_CUES).fill(null);
+  }
+}
+function saveCues(key, cues) {
+  try {
+    const all = JSON.parse(localStorage.getItem(CUES_SAVED) || "{}");
+    delete all[key];
+    if (cues.some((c) => c !== null)) all[key] = cues;
+    const keys = Object.keys(all);
+    for (const k of keys.slice(0, Math.max(0, keys.length - 500))) delete all[k]; // keep the newest 500 tracks
+    localStorage.setItem(CUES_SAVED, JSON.stringify(all));
+  } catch {
+    /* not kept: fine */
+  }
+}
 
 /** Smooth volume changes over ~15 ms so faders never click. */
 const SMOOTH = 0.015;
@@ -87,6 +113,9 @@ export class Deck {
     this.playFrom = 0; // track seconds where the current playback began
     this.playStart = 0; // context time when it began (may be in the future)
     this.cue = 0;
+    this.hotCues = Array(HOT_CUES).fill(null); // track seconds, on the beat
+    this.cueKey = "";
+    this.loop = null; // { start, end, beats } in track seconds, while a loop plays
     this.listeners = new Set();
     this.loadTicket = 0;
     this.volume = 1;
@@ -202,6 +231,9 @@ export class Deck {
     this.peaks = computePeaks(channels, WAVEFORM_BARS);
     this.offset = 0;
     this.cue = 0;
+    this.loop = null;
+    this.cueKey = cueKey(this.name, buffer.duration);
+    this.hotCues = savedCues(this.cueKey);
     if (known) {
       this.analysis = { status: "done", tempo: known.tempo, key: known.key };
       this.emit();
@@ -253,7 +285,7 @@ export class Deck {
       return Math.min(this.duration, b.from + Math.max(0, now - b.start) * b.speed);
     }
     const elapsed = Math.max(0, now - this.playStart);
-    return Math.min(this.duration, this.playFrom + elapsed * this.speed);
+    return Math.min(this.duration, wrapPosition(this.playFrom + elapsed * this.speed, this.loop));
   }
 
   /** A swap to another copy is scheduled and hasn't happened yet. */
@@ -265,12 +297,12 @@ export class Deck {
   /** Where the playhead will be at context time `when` (if nothing changes). */
   positionAt(when) {
     if (!this.playing) return this.offset;
-    return Math.min(this.duration, this.playFrom + Math.max(0, when - this.playStart) * this.speed);
+    return Math.min(this.duration, wrapPosition(this.playFrom + Math.max(0, when - this.playStart) * this.speed, this.loop));
   }
 
   play() {
     if (!this.buffer || this.playing) return;
-    this.startAt(audioContext().currentTime, this.offset);
+    this.startAt(audioContext().currentTime, this.offset, { keepLoop: true });
   }
 
   /**
@@ -278,10 +310,12 @@ export class Deck {
    * track (track seconds). Used by Play and by the transition, which starts
    * the next track exactly on the bar.
    */
-  startAt(when, trackSeconds) {
+  startAt(when, trackSeconds, { keepLoop = false } = {}) {
     if (!this.buffer) return;
     const ctx = this.ensureNodes();
+    const loop = keepLoop ? this.loop : null;
     this.stop();
+    this.loop = loop;
     let from = trackSeconds >= this.duration ? 0 : Math.max(0, trackSeconds);
     const source = ctx.createBufferSource();
     source.buffer = this.stretched || this.buffer;
@@ -306,6 +340,137 @@ export class Deck {
     this.source = source;
     this.sourceGain = gain;
     this.playing = true;
+    this.applyLoop();
+    this.emit();
+  }
+
+  // ---- hot cues and loops ------------------------------------------------
+
+  /** Tell the playing source about the loop (its points are in the copy's seconds). */
+  applyLoop() {
+    const s = this.source;
+    if (!s) return;
+    if (!this.loop) {
+      s.loop = false;
+      return;
+    }
+    const k = this.stretched ? this.stretchTempo : 1;
+    s.loopStart = this.loop.start / k;
+    s.loopEnd = this.loop.end / k;
+    s.loop = true;
+  }
+
+  /** From here on, count the playhead from where it is now (after a loop change). */
+  rebase() {
+    if (!this.playing || !context) return;
+    const p = this.position;
+    this.playFrom = p;
+    this.playStart = context.currentTime;
+    this.before = null;
+  }
+
+  /**
+   * Beat loop of `beats` (½ … 16). Pressing the length that's looping lets
+   * go; another length resizes the loop, keeping its start.
+   */
+  setLoop(beats) {
+    const t = this.analysis.tempo;
+    if (!this.buffer || !t) return;
+    this.touched();
+    if (this.loop && this.loop.beats === beats) return this.exitLoop();
+    const pos = this.position;
+    const next = this.loop ? resizeLoop(this.loop, t, beats) : loopAt(pos, t, beats);
+    if (next.end > this.duration) return;
+    if (!this.playing) {
+      this.loop = next;
+      this.emit();
+      return;
+    }
+    if (pos >= next.end || pos < next.start) {
+      // Shorter than where the playhead is: carry on inside the new loop.
+      this.loop = next;
+      this.jumpTo(wrapPosition(pos, next), { keepLoop: true });
+      return;
+    }
+    this.rebase();
+    this.loop = next;
+    this.applyLoop();
+    this.emit();
+  }
+
+  /** Let go of the loop: the track carries on from where it is. */
+  exitLoop() {
+    if (!this.loop) return;
+    this.rebase();
+    this.loop = null;
+    this.applyLoop();
+    this.emit();
+  }
+
+  /** Hot cue: empty = set it here (on the nearest beat); set = jump there, in time. */
+  pressHotCue(i) {
+    if (!this.buffer) return;
+    this.touched();
+    const t = this.analysis.tempo;
+    if (this.hotCues[i] === null) {
+      this.hotCues = this.hotCues.map((c, k) => (k === i ? quantize(this.position, t) : c));
+      saveCues(this.cueKey, this.hotCues);
+      this.emit();
+      return;
+    }
+    // The jump happens 10 ms from now (see jumpTo): land where the beat will be then.
+    const at = this.playing ? this.position + JUMP_LEAD * this.speed : this.position;
+    const target = Math.max(0, Math.min(this.duration - 0.05, jumpTarget(at, this.hotCues[i], t, this.playing)));
+    this.loop = null;
+    if (this.playing) this.jumpTo(target);
+    else {
+      this.offset = target;
+      this.emit();
+    }
+  }
+
+  clearHotCue(i) {
+    this.hotCues = this.hotCues.map((c, k) => (k === i ? null : c));
+    saveCues(this.cueKey, this.hotCues);
+    this.emit();
+  }
+
+  /** Jump while playing, with a 10 ms cross-fade so it never clicks. */
+  jumpTo(trackSeconds, { keepLoop = false } = {}) {
+    if (!this.playing || !this.source) return;
+    const ctx = audioContext();
+    const when = onSample(ctx.currentTime + JUMP_LEAD, ctx.sampleRate);
+    const fade = 0.01;
+    const old = this.source;
+    const oldGain = this.sourceGain;
+    oldGain.gain.setValueAtTime(1, when);
+    oldGain.gain.linearRampToValueAtTime(0, when + fade);
+    old.onended = null;
+    old.stop(when + fade + 0.01);
+    const loop = keepLoop ? this.loop : null;
+    const source = ctx.createBufferSource();
+    source.buffer = this.stretched || this.buffer;
+    source.playbackRate.value = this.pitchRate;
+    const gain = ctx.createGain();
+    source.connect(gain).connect(this.volumeNode);
+    gain.gain.setValueAtTime(0, when);
+    gain.gain.linearRampToValueAtTime(1, when + fade);
+    source.onended = () => {
+      if (this.source !== source) return;
+      this.source = null;
+      this.playing = false;
+      this.offset = this.duration;
+      this.emit();
+    };
+    const k = this.stretched ? this.stretchTempo : 1;
+    source.start(when, Math.min(onSample(trackSeconds / k, source.buffer.sampleRate), source.buffer.duration));
+    this.source = source;
+    this.sourceGain = gain;
+    this.playFrom = trackSeconds;
+    this.playStart = when;
+    this.before = null;
+    this.loop = loop;
+    this.applyLoop();
     this.emit();
   }
 
@@ -343,6 +508,7 @@ export class Deck {
       this.emit();
     };
     source.start(when, Math.min(onSample(buffer ? at / stretchTempo : at, source.buffer.sampleRate), source.buffer.duration));
+    this.loop = null; // a swap carries on straight (transitions and polish never happen inside a loop)
     this.before = { from: this.playFrom, start: this.playStart, speed: this.speed };
     this.stretched = buffer;
     this.stretchTempo = stretchTempo;
@@ -394,6 +560,7 @@ export class Deck {
     this.touched();
     const next = pressCue({ playing: this.playing, position: this.position, cue: this.cue });
     this.stop();
+    this.loop = null;
     this.offset = next.position;
     this.cue = next.cue;
     this.emit();
@@ -405,6 +572,7 @@ export class Deck {
     this.touched();
     const wasPlaying = this.playing;
     this.stop();
+    this.loop = null;
     this.offset = clamp(fraction, 0, 1) * this.duration;
     if (wasPlaying) this.play();
     else this.emit();

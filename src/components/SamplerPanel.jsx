@@ -21,7 +21,9 @@ import {
   padFile,
   allPadsZip,
   setBuildUpFrom,
+  undoClear,
 } from "../audio/sampler.js";
+import { UndoStrip } from "./UndoStrip.jsx";
 import { SAMPLE_BEATS } from "../lib/sampler.js";
 
 /**
@@ -188,6 +190,7 @@ export function SamplerPanel() {
           </button>
         </div>
       )}
+      <UndoStrip undo={sampler.undo} onUndo={undoClear} testid="pads-undo" />
       {sampler.message && (
         <p className="autodj-note" role="status" data-testid="sampler-message">
           {sampler.message}

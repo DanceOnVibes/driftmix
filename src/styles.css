@@ -290,3 +290,26 @@ button.pad:active { background: rgba(212, 166, 74, 0.18); }
 @media (max-width: 640px) {
   .pads { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* Hot cues and loops */
+.cueloop { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
+.hotcues { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; flex: 1 1 300px; min-width: 0; }
+.hotcue { display: flex; min-width: 0; }
+.hotcue button { appearance: none; min-height: 40px; background: #000; color: #9fe0bf; border: 1px solid rgba(120, 200, 160, 0.55); font: 600 0.8rem var(--sans); cursor: pointer; }
+.hotcue button:first-child { flex: 1; min-width: 0; padding: 0 6px; border-radius: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hotcue .hotcue-x { width: 28px; margin-left: -1px; border-radius: 0 10px 10px 0; color: var(--muted); }
+.hotcue:not(.hotcue-empty) button:first-child { border-radius: 10px 0 0 10px; background: rgba(120, 200, 160, 0.12); }
+.hotcue-empty button { color: var(--muted); border-style: dashed; border-color: var(--line); }
+.loops { flex-wrap: wrap; border-radius: 14px; }
+.loops .bar-choice { padding: 8px 12px; }
+.loops .loop-on { background: rgba(120, 200, 160, 0.2); color: #9fe0bf; }
+.loop-label { padding: 8px 12px; color: var(--muted); font: 600 0.8rem var(--sans); }
+
+/* Undo after Clear */
+.undo-strip { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0; padding: 8px 12px; background: #000; border: 1px solid rgba(212, 166, 74, 0.5); border-radius: 10px; font-size: 0.9rem; color: var(--text); }
+
+/* App: install and new version */
+.update-strip { display: flex; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap; margin: 0 0 12px; padding: 10px 14px; background: #000; border: 1px solid var(--gold); border-radius: 12px; color: var(--text); font-size: 0.9rem; }
+.install-btn { font-size: 0.95rem; }
+.install-ios { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.install-hint { color: var(--muted); font-size: 0.85rem; }

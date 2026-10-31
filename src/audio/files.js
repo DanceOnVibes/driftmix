@@ -53,6 +53,7 @@ export const files = {
   busy: false,
   message: "",
   zipUrl: null,
+  undo: null, // what was just cleared, for 10 seconds
   listeners: new Set(),
   subscribe(listener) {
     this.listeners.add(listener);
@@ -290,11 +291,36 @@ export function setTitle(id, title) {
 
 export function clearAll() {
   if (files.busy) return;
-  for (const it of files.items) clearOutput(it, it.status);
+  const was = files.items;
+  for (const it of was) clearOutput(it, it.status === "done" ? "ready" : it.status);
   files.items = [];
   clearZip();
   files.message = "";
+  offerUndo(files, { items: was }, `Cleared ${was.length} track${was.length === 1 ? "" : "s"}.`);
   files.emit();
+}
+
+/** Bring back the list that was just cleared (within 10 seconds). */
+export function undoClear() {
+  const u = files.undo;
+  if (!u) return;
+  files.items = [...u.items, ...files.items];
+  files.undo = null;
+  files.message = `Back: ${u.items.length} track${u.items.length === 1 ? "" : "s"}.`;
+  files.emit();
+}
+
+/**
+ * Keep what was cleared for 10 seconds, so one wrong tap can't wipe a list.
+ * @param {{ undo: object|null, emit: Function }} store
+ */
+export function offerUndo(store, data, text, seconds = 10) {
+  clearTimeout(store.undoTimer);
+  store.undo = { ...data, text, until: Date.now() + seconds * 1000 };
+  store.undoTimer = setTimeout(() => {
+    store.undo = null;
+    store.emit();
+  }, seconds * 1000);
 }
 
 /** A cover image, resized to at most 1000 px and saved as JPEG (keeps files small). */

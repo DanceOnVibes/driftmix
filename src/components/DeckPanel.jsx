@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { useDeck } from "./useDeck.js";
 import { Waveform } from "./Waveform.jsx";
 import { formatTime } from "../lib/mixer.js";
+import { LOOP_BEATS } from "../lib/cues.js";
 
 /**
  * One deck: load a track (button or drag and drop), see its waveform,
@@ -87,6 +88,8 @@ export function DeckPanel({ deck, title }) {
         peaks={deck.peaks}
         progress={progress}
         cue={duration ? deck.cue / duration : 0}
+        hotCues={duration ? deck.hotCues.map((c) => (c === null ? null : c / duration)) : []}
+        loop={duration && deck.loop ? { from: deck.loop.start / duration, to: deck.loop.end / duration } : null}
         onSeek={(f) => deck.seek(f)}
         label={loaded ? `Waveform of ${deck.name}. Click to jump.` : "Empty deck"}
       />
@@ -129,7 +132,59 @@ export function DeckPanel({ deck, title }) {
           />
         </label>
       </div>
+
+      {loaded && <CueLoop deck={deck} />}
     </section>
+  );
+}
+
+/**
+ * Hot cues (tap an empty one to set it on the nearest beat, tap a set one to
+ * jump there in time, × to clear) and beat loops (tap a length; tap it again
+ * to let go; another length resizes it).
+ */
+function CueLoop({ deck }) {
+  const id = deck.id;
+  const hasTempo = Boolean(deck.analysis.tempo);
+  return (
+    <div className="cueloop">
+      <div className="hotcues" role="group" aria-label={`Deck ${id.toUpperCase()} hot cues`}>
+        {deck.hotCues.map((c, i) => (
+          <span key={i} className={`hotcue${c === null ? " hotcue-empty" : ""}`}>
+            <button
+              type="button"
+              onClick={() => deck.pressHotCue(i)}
+              title={c === null ? "Set a hot cue here (on the nearest beat)" : `Jump to ${formatTime(c)}, in time`}
+              data-testid={`hotcue-${id}-${i}`}
+            >
+              {c === null ? `+ ${i + 1}` : `${i + 1} · ${formatTime(c)}`}
+            </button>
+            {c !== null && (
+              <button type="button" className="hotcue-x" onClick={() => deck.clearHotCue(i)} aria-label={`Clear hot cue ${i + 1}`} data-testid={`hotcue-x-${id}-${i}`}>
+                ×
+              </button>
+            )}
+          </span>
+        ))}
+      </div>
+      <div className="bars loops" role="group" aria-label={`Deck ${id.toUpperCase()} beat loops`}>
+        {LOOP_BEATS.map((n) => (
+          <button
+            key={n}
+            type="button"
+            className={`bar-choice${deck.loop?.beats === n ? " bar-on loop-on" : ""}`}
+            onClick={() => deck.setLoop(n)}
+            disabled={!hasTempo}
+            aria-pressed={deck.loop?.beats === n}
+            title={deck.loop?.beats === n ? "Tap again to let go of the loop" : `Loop ${n === 0.5 ? "half a beat" : `${n} beat${n === 1 ? "" : "s"}`}`}
+            data-testid={`loop-${id}-${n}`}
+          >
+            {n === 0.5 ? "½" : n}
+          </button>
+        ))}
+        <span className="loop-label">{deck.loop ? "Looping" : "Loop"}</span>
+      </div>
+    </div>
   );
 }
 
