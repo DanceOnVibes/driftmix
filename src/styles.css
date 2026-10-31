@@ -372,3 +372,5 @@ button.pad:active { background: rgba(212, 166, 74, 0.18); }
   .tab-active { color: #120d04; background: linear-gradient(180deg, var(--gold-bright), var(--gold)); }
   .tab-dot { position: absolute; top: 6px; right: 8px; width: 7px; height: 7px; border-radius: 50%; background: var(--gold-bright); }
 }
+.foot .made-by { color: var(--text); }
+.foot .made-by a { color: var(--gold); }

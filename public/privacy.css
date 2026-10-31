@@ -1,0 +1,18 @@
+/* The privacy page (a separate file: the security rules allow no styles inside the page). */
+:root { --bg: #050403; --raised: #0e0b07; --line: #2a2214; --gold: #d4a64a; --gold-bright: #f3cf7a; --text: #c9c6bf; --muted: #8d877b; --silver: #e6e6e6; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
+a { color: var(--gold); text-underline-offset: 3px; }
+a:hover { color: var(--gold-bright); }
+.top { max-width: 760px; margin: 0 auto; padding: 18px 16px; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); }
+.brand { color: var(--silver); font: 400 1.6rem/1 Georgia, "Times New Roman", serif; text-decoration: none; }
+.brand small { color: var(--gold); font: 0.85rem system-ui, sans-serif; margin-left: 8px; }
+main { max-width: 760px; margin: 0 auto; padding: 8px 16px 40px; }
+h1 { color: var(--silver); font: 400 2.2rem/1.2 Georgia, "Times New Roman", serif; margin: 28px 0 4px; }
+h2 { color: var(--gold); font-size: 0.8rem; letter-spacing: 0.14em; text-transform: uppercase; margin: 32px 0 6px; }
+.muted { color: var(--muted); }
+.promise { margin: 22px 0 0; padding: 16px 18px; background: var(--raised); border: 1px solid var(--gold); border-radius: 12px; color: var(--silver); font-size: 1.1rem; }
+ul { padding-left: 20px; }
+li { margin: 4px 0; }
+footer { max-width: 760px; margin: 0 auto; padding: 16px 16px 32px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.85rem; }
+footer a { color: var(--muted); }

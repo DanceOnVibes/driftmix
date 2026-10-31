@@ -48,7 +48,10 @@ export async function playDemo() {
         const res = await fetch(`./demo/${encodeURIComponent(t.file)}`);
         if (!res.ok) throw new Error("missing");
         const blob = await res.blob();
-        return { file: new File([blob], t.file, { type: blob.type || "audio/mpeg" }), name: t.title || t.file.replace(/\.[^.]+$/, "") };
+        // Named by its title, so the decks show "Dracula's Land", not "draculas-land".
+        const ext = (t.file.match(/\.[^.]+$/) || [".mp3"])[0];
+        const name = t.title || t.file.replace(/\.[^.]+$/, "");
+        return { file: new File([blob], `${name}${ext}`, { type: blob.type || "audio/mpeg" }), name };
       }),
     );
     addTracks(files);
