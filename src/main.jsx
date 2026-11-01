@@ -49,6 +49,7 @@ if (new URLSearchParams(window.location.search).has("debug")) {
       keep,
       files: filesMod.files,
       analyzeBuffer: analysis.analyzeBuffer,
+      stretchEngine: analysis.stretchEngineInUse,
       master: engine.masterNode,
       masterOutput: engine.masterOutput,
       sampler: samplerMod.sampler,

@@ -13,9 +13,30 @@
  * transition button uses to bring the next track to the playing tempo.
  */
 import { vocoderStretch } from "./vocoder.js";
+import { signalsmithStretch } from "./signalsmith.js";
+
+let studio = null;
 
 /**
- * The time-stretch DriftMix uses: the phase vocoder (see vocoder.js). It
+ * From now on, stretch with Signalsmith Stretch (see signalsmith.js). The
+ * background workers switch it on once the engine has loaded; until then, or
+ * on a browser that can't run it, DriftMix's own phase vocoder does the job.
+ * @param {object|null} engine  from loadSignalsmith(), or null for the vocoder
+ */
+export function useStudioStretch(engine) {
+  studio = engine;
+}
+
+/** Which engine timeStretch uses now. */
+export function stretchEngine() {
+  return studio ? "signalsmith" : "vocoder";
+}
+
+/**
+ * The time-stretch DriftMix uses: Signalsmith Stretch once it's switched on
+ * (measured on a real track, about a quarter closer to the original's sound
+ * in every band than the vocoder, drum hits included), otherwise the phase
+ * vocoder (see vocoder.js). The vocoder
  * keeps held notes (pads, vocals, bass) smooth where WSOLA could leave a
  * faint grainy roughness: on a held chord stretched 3%, −52 dB of unwanted
  * sound against −21 dB with WSOLA, with hits just as sharp. Measured on a
@@ -29,7 +50,7 @@ import { vocoderStretch } from "./vocoder.js";
 export function timeStretch(channels, sampleRate, tempo) {
   if (!(tempo > 0)) throw new Error("tempo must be positive");
   if (Math.abs(tempo - 1) < 1e-5) return channels.map((c) => c.slice());
-  return vocoderStretch(channels, sampleRate, tempo);
+  return studio ? signalsmithStretch(studio, channels, sampleRate, tempo) : vocoderStretch(channels, sampleRate, tempo);
 }
 
 /**

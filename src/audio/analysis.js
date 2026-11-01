@@ -102,6 +102,11 @@ export async function stretchBuffer(buffer, tempo, context, semitones = 0) {
   return result;
 }
 
+/** Which time-stretch the background worker uses: "signalsmith" (studio) or "vocoder" (the fallback). */
+export function stretchEngineInUse() {
+  return run("stretch", { type: "engine" });
+}
+
 /**
  * The exact tempo and beat in one stretch of a track (track seconds from
  * `from` to `to`), measured fresh just before a mix.

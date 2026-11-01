@@ -5,17 +5,20 @@
  *  - "grid": the exact local tempo and beat of a slice (just before a mix).
  *  - "sections": the tempo section by section (does it wander?).
  *  - "pitch": the sung pitch of a Vocal Booth take, every 10 ms.
+ *  - "engine": which time-stretch is in use ("signalsmith" or "vocoder").
  * Everything happens on the DJ's own computer.
  */
 import { analyzeTrack } from "../lib/analyze.js";
-import { timeStretch } from "../lib/stretch.js";
+import { timeStretch, stretchEngine } from "../lib/stretch.js";
 import { retune } from "../lib/files/retune.js";
 import { fitLocalGrid } from "../lib/tempo.js";
 import { downsample } from "../lib/analyze.js";
 import { tempoSections, steadiness } from "../lib/steady.js";
 import { detectPitch } from "../lib/booth/pitch.js";
+import { studioReady } from "./studioStretch.js";
 
-self.onmessage = (event) => {
+self.onmessage = async (event) => {
+  await studioReady; // the studio time-stretch, ready in a few ms
   const { id, type = "analyze" } = event.data;
   try {
     if (type === "pitch") {
@@ -30,6 +33,8 @@ self.onmessage = (event) => {
       const { samples, sampleRate, bpm } = event.data;
       const d = downsample(samples, sampleRate);
       self.postMessage({ id, result: fitLocalGrid(d.samples, d.sampleRate, bpm) });
+    } else if (type === "engine") {
+      self.postMessage({ id, result: stretchEngine() });
     } else if (type === "stretch") {
       // A key shift is built into the copy (stretch, then a clean resample),
       // so it never goes through the browser's rough speed change.
