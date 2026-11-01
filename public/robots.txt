@@ -1,0 +1,5 @@
+# Search engines are welcome everywhere on driftmix.app.
+User-agent: *
+Allow: /
+
+Sitemap: https://driftmix.app/sitemap.xml
