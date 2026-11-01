@@ -9,8 +9,10 @@ import { integratedLufs, loudnessGain } from "../lib/files/loudness.js";
 import { trimSilence, toMono, peakDb, applyGainDb } from "../lib/files/tools.js";
 import { retune } from "../lib/files/retune.js";
 import { applyBass } from "../lib/files/bass.js";
+import { studioReady } from "./studioStretch.js";
 
-self.onmessage = (event) => {
+self.onmessage = async (event) => {
+  await studioReady; // the studio time-stretch, ready in a few ms
   const { id, channels, sampleRate, settings, tags, plan, bassDb } = event.data;
   try {
     let ch = channels;

@@ -10,7 +10,7 @@
  *    starts on its own.
  * Nothing leaves the device.
  */
-import { audioContext, decks, masterNode } from "./engine.js";
+import { audioContext, decks, masterOutput } from "./engine.js";
 import { mix, isActive } from "./transition.js";
 import { autoDj } from "./autodj.js";
 import { files } from "./files.js";
@@ -90,7 +90,7 @@ async function ensureTap(ctx) {
   tap = new AudioWorkletNode(ctx, "driftmix-tap", { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2], channelCount: 2, channelCountMode: "explicit" });
   const silent = ctx.createGain();
   silent.gain.value = 0;
-  masterNode().connect(tap);
+  masterOutput().connect(tap); // after the limiter: the set as the speakers played it
   tap.connect(silent).connect(ctx.destination);
   worker = new Worker(new URL("./setrec.worker.js", import.meta.url), { type: "module" });
   const line = new MessageChannel();

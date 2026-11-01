@@ -18,6 +18,7 @@
  * stretched copy at another tempo; `speed` converts between the two.
  */
 import { tidyName } from "../lib/files/naming.js";
+import { EQ_BANDS, eqGainDb, filterHz, echoSeconds, reverbImpulse } from "../lib/djmixer.js";
 import { computePeaks } from "../lib/peaks.js";
 import { crossfadeGains, clamp, pressCue } from "../lib/mixer.js";
 import { shiftCamelot } from "../lib/match.js";
@@ -65,6 +66,12 @@ export const MID_Q = 0.6;
 export const MID_CUT = -18;
 
 let context = null;
+let limiter = null;
+let masterOut = null;
+let reverb = null;
+let cue = null;
+/** Undoes the small level lift the browser's compressor adds, so quiet music comes out exactly as it went in. */
+const LIMITER_TRIM = 10 ** (-0.855 / 20); // measured: the compressor lifts everything by 0.855 dB
 let master = null;
 
 /**
@@ -77,7 +84,13 @@ export function onSample(seconds, sampleRate) {
   return Math.round(seconds * sampleRate) / sampleRate;
 }
 
-/** The master bus (everything the decks play), e.g. for recording the set. */
+/** What reaches the speakers (after the limiter): what a recorded set should capture. */
+export function masterOutput() {
+  audioContext();
+  return masterOut;
+}
+
+/** The master bus (everything the decks play), before the limiter. */
 export function masterNode() {
   audioContext();
   return master;
@@ -88,7 +101,17 @@ export function audioContext() {
     const Ctx = window.AudioContext || window.webkitAudioContext;
     context = new Ctx();
     master = context.createGain();
-    master.connect(context.destination);
+    // A safety limiter on everything: boosted EQs on both decks never clip
+    // the speakers or a recorded set. Quiet music passes untouched.
+    limiter = context.createDynamicsCompressor();
+    limiter.threshold.value = -1.5;
+    limiter.knee.value = 0;
+    limiter.ratio.value = 20;
+    limiter.attack.value = 0.002;
+    limiter.release.value = 0.12;
+    masterOut = context.createGain();
+    masterOut.gain.value = LIMITER_TRIM;
+    master.connect(limiter).connect(masterOut).connect(context.destination);
   }
   if (context.state === "suspended") void context.resume();
   return context;
@@ -127,6 +150,15 @@ export class Deck {
     this.faderNode = null;
     this.filterNode = null;
     this.sendNode = null;
+    // The DJ's own knobs (separate from what the transitions automate).
+    this.eq = { low: 0, mid: 0, high: 0 }; // −1 … +1
+    this.kills = { low: false, mid: false, high: false };
+    this.filter = 0; // −1 low-pass … +1 high-pass
+    this.echo = 0; // 0 … 1
+    this.verb = 0; // 0 … 1
+    this.knobs = null;
+    this.headphones = false; // sent to the headphones (before the crossfader)
+    this.cueSend = null;
     this.clearStretch();
     /** Called when the DJ presses something on this deck (the transition and Auto DJ listen). */
     this.touchHandlers = new Set();
@@ -181,7 +213,44 @@ export class Deck {
       this.filterNode.Q.value = 0.7;
       this.sendNode = ctx.createGain();
       this.sendNode.gain.value = 0;
-      this.volumeNode.connect(this.filterNode);
+      // The DJ's knobs come first: filter, then LOW / MID / HIGH.
+      const k = {};
+      k.hp = ctx.createBiquadFilter();
+      k.hp.type = "highpass";
+      k.lp = ctx.createBiquadFilter();
+      k.lp.type = "lowpass";
+      for (const f of [k.hp, k.lp]) f.Q.value = 1.1; // a touch of resonance, like a DJ filter
+      for (const [band, spec] of Object.entries(EQ_BANDS)) {
+        const node = ctx.createBiquadFilter();
+        node.type = spec.type;
+        node.frequency.value = spec.hz;
+        if (spec.q) node.Q.value = spec.q;
+        k[band] = node;
+      }
+      // Effects, after the crossfader (so they follow the mix): echo timed to this deck's beat, and reverb.
+      k.echoSend = ctx.createGain();
+      k.echoDelay = ctx.createDelay(3);
+      k.echoFeedback = ctx.createGain();
+      k.echoFeedback.gain.value = 0.42;
+      k.echoTone = ctx.createBiquadFilter();
+      k.echoTone.type = "bandpass";
+      k.echoTone.frequency.value = 1400;
+      k.echoTone.Q.value = 0.5;
+      k.echoSend.connect(k.echoDelay).connect(k.echoTone);
+      k.echoTone.connect(k.echoFeedback).connect(k.echoDelay);
+      k.echoTone.connect(master);
+      k.verbSend = ctx.createGain();
+      k.verbSend.connect(reverbBus(ctx));
+      this.knobs = k;
+      this.volumeNode.connect(k.hp).connect(k.lp).connect(k.low).connect(k.mid).connect(k.high).connect(this.filterNode);
+      // Headphones: after the EQs, before the crossfader, so you can hear
+      // the next track before the crowd does.
+      this.cueSend = ctx.createGain();
+      this.cueSend.gain.value = this.headphones ? 1 : 0;
+      this.midNode.connect(this.cueSend).connect(cueBus(ctx));
+      this.faderNode.connect(k.echoSend);
+      this.faderNode.connect(k.verbSend);
+      this.applyKnobs(true);
       this.filterNode.connect(this.bassNode);
       this.bassNode.connect(this.midNode);
       this.midNode.connect(this.faderNode);
@@ -341,6 +410,7 @@ export class Deck {
     this.source = source;
     this.sourceGain = gain;
     this.playing = true;
+    if (this.echo > 0) this.applyKnobs(); // the echo follows this track's tempo
     this.applyLoop();
     this.emit();
   }
@@ -596,6 +666,75 @@ export class Deck {
     }
   }
 
+  // ---- the DJ's knobs -----------------------------------------------------
+
+  /** LOW / MID / HIGH knob (−1 … +1). */
+  setEq(band, value) {
+    if (!(band in this.eq)) return;
+    this.eq = { ...this.eq, [band]: Math.max(-1, Math.min(1, Number(value) || 0)) };
+    this.applyKnobs();
+    this.emit();
+  }
+
+  /** Kill a band (or bring it back) in one press. */
+  toggleKill(band) {
+    if (!(band in this.kills)) return;
+    this.kills = { ...this.kills, [band]: !this.kills[band] };
+    this.applyKnobs();
+    this.emit();
+  }
+
+  /** FILTER knob: −1 low-pass … 0 off … +1 high-pass. */
+  setFilter(value) {
+    this.filter = Math.max(-1, Math.min(1, Number(value) || 0));
+    this.applyKnobs();
+    this.emit();
+  }
+
+  /** ECHO / VERB amount (0 … 1). */
+  setFx(kind, value) {
+    if (kind !== "echo" && kind !== "verb") return;
+    this[kind] = Math.max(0, Math.min(1, Number(value) || 0));
+    this.applyKnobs();
+    this.emit();
+  }
+
+  /** Send this deck to the headphones, or take it off. */
+  toggleHeadphones() {
+    this.headphones = !this.headphones;
+    if (this.cueSend) this.cueSend.gain.setTargetAtTime(this.headphones ? 1 : 0, context.currentTime, 0.01);
+    this.emit();
+  }
+
+  /** All the DJ's knobs back to the middle. */
+  resetKnobs() {
+    this.eq = { low: 0, mid: 0, high: 0 };
+    this.kills = { low: false, mid: false, high: false };
+    this.filter = 0;
+    this.echo = 0;
+    this.verb = 0;
+    this.applyKnobs();
+    this.emit();
+  }
+
+  /** Send the knob positions to the audio (smoothly, so turning never clicks). */
+  applyKnobs(now = false) {
+    const k = this.knobs;
+    if (!k) return;
+    const t = context.currentTime;
+    const set = (param, value, tc = 0.015) => {
+      if (now) param.value = value;
+      else param.setTargetAtTime(value, t, tc);
+    };
+    for (const band of Object.keys(this.eq)) set(k[band].gain, this.kills[band] ? -40 : eqGainDb(this.eq[band]));
+    const f = filterHz(this.filter);
+    set(k.lp.frequency, f.lowpass, 0.02);
+    set(k.hp.frequency, f.highpass, 0.02);
+    set(k.echoSend.gain, this.echo * 0.8);
+    set(k.echoDelay.delayTime, echoSeconds(this.playingBpm), 0.05);
+    set(k.verbSend.gain, this.verb * 0.9);
+  }
+
   /** Bass and mid EQ back to flat, filter open, echo send off, straight away. */
   resetEq() {
     const t = context.currentTime;
@@ -652,6 +791,31 @@ export function echoBus(ctx = audioContext()) {
     echo = { input, delay, feedback, out };
   }
   return echo.input;
+}
+
+/** Where the decks sent to the headphones meet (see headphones.js for where it goes). */
+export function cueBus(ctx = audioContext()) {
+  if (!cue) cue = ctx.createGain();
+  return cue;
+}
+
+/** The shared reverb (a hall made of fading noise), into the master. */
+export function reverbBus(ctx = audioContext()) {
+  if (!reverb) {
+    const input = ctx.createGain();
+    const conv = ctx.createConvolver();
+    const ir = reverbImpulse(ctx.sampleRate);
+    const buffer = ctx.createBuffer(2, ir[0].length, ctx.sampleRate);
+    buffer.copyToChannel(ir[0], 0);
+    buffer.copyToChannel(ir[1], 1);
+    conv.buffer = buffer;
+    const tone = ctx.createBiquadFilter();
+    tone.type = "highpass";
+    tone.frequency.value = 220; // no boomy reverb on the kick
+    input.connect(tone).connect(conv).connect(master);
+    reverb = { input };
+  }
+  return reverb.input;
 }
 
 /** The echo's controls: delay time (s), feedback (0–1). */

@@ -102,6 +102,8 @@ export function AppMenu() {
             Version {app.version}
             <br />
             MP3 encoding by <a href="https://lame.sourceforge.io">LAME</a> (via lamejs, LGPL)
+            <br />
+            Time-stretch by <a href="https://signalsmith-audio.co.uk/code/stretch/">Signalsmith Stretch</a> (<a href="/licenses/signalsmith-stretch.txt">MIT</a>)
           </p>
         </div>
       )}
