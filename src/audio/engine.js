@@ -69,6 +69,7 @@ let context = null;
 let limiter = null;
 let masterOut = null;
 let reverb = null;
+let cue = null;
 /** Undoes the small level lift the browser's compressor adds, so quiet music comes out exactly as it went in. */
 const LIMITER_TRIM = 10 ** (-0.855 / 20); // measured: the compressor lifts everything by 0.855 dB
 let master = null;
@@ -156,6 +157,8 @@ export class Deck {
     this.echo = 0; // 0 … 1
     this.verb = 0; // 0 … 1
     this.knobs = null;
+    this.headphones = false; // sent to the headphones (before the crossfader)
+    this.cueSend = null;
     this.clearStretch();
     /** Called when the DJ presses something on this deck (the transition and Auto DJ listen). */
     this.touchHandlers = new Set();
@@ -240,6 +243,11 @@ export class Deck {
       k.verbSend.connect(reverbBus(ctx));
       this.knobs = k;
       this.volumeNode.connect(k.hp).connect(k.lp).connect(k.low).connect(k.mid).connect(k.high).connect(this.filterNode);
+      // Headphones: after the EQs, before the crossfader, so you can hear
+      // the next track before the crowd does.
+      this.cueSend = ctx.createGain();
+      this.cueSend.gain.value = this.headphones ? 1 : 0;
+      this.midNode.connect(this.cueSend).connect(cueBus(ctx));
       this.faderNode.connect(k.echoSend);
       this.faderNode.connect(k.verbSend);
       this.applyKnobs(true);
@@ -691,6 +699,13 @@ export class Deck {
     this.emit();
   }
 
+  /** Send this deck to the headphones, or take it off. */
+  toggleHeadphones() {
+    this.headphones = !this.headphones;
+    if (this.cueSend) this.cueSend.gain.setTargetAtTime(this.headphones ? 1 : 0, context.currentTime, 0.01);
+    this.emit();
+  }
+
   /** All the DJ's knobs back to the middle. */
   resetKnobs() {
     this.eq = { low: 0, mid: 0, high: 0 };
@@ -776,6 +791,12 @@ export function echoBus(ctx = audioContext()) {
     echo = { input, delay, feedback, out };
   }
   return echo.input;
+}
+
+/** Where the decks sent to the headphones meet (see headphones.js for where it goes). */
+export function cueBus(ctx = audioContext()) {
+  if (!cue) cue = ctx.createGain();
+  return cue;
 }
 
 /** The shared reverb (a hall made of fading noise), into the master. */

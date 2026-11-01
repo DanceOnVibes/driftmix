@@ -397,3 +397,18 @@ button.pad:active { background: rgba(212, 166, 74, 0.18); }
 .kill-on { background: #c0503c; border-color: #c0503c; color: #fff; }
 .mixer-reset { flex-basis: 100%; text-align: right; font-size: 0.78rem; }
 @media (max-width: 480px) { .mixer-strip { display: grid; grid-template-columns: repeat(3, 1fr); justify-items: center; gap: 10px 4px; } .mixer-reset { grid-column: 1 / -1; justify-self: end; } }
+
+/* ---------- Headphones and controller ---------- */
+.gear-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 4px; }
+@media (max-width: 900px) { .gear-grid { grid-template-columns: 1fr; } }
+.gear { background: var(--bg-raised); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.gear-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; }
+.gear-head h3 { margin: 0; font: 600 1rem var(--sans); color: var(--silver); }
+.gear-head .muted { font-size: 0.85rem; flex: 1; min-width: 12em; }
+.gear-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+.phones-btn { appearance: none; border: 1px solid rgba(212, 166, 74, 0.5); background: transparent; border-radius: 999px; padding: 8px 12px; font-size: 1rem; cursor: pointer; line-height: 1; }
+.phones-on { background: var(--gold); border-color: var(--gold); }
+.learn-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; max-height: 320px; overflow-y: auto; }
+.learn-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 8px; font-size: 0.85rem; }
+.learn-list li.learn-on { background: rgba(212, 166, 74, 0.12); }
+.learn-key { font-variant-numeric: tabular-nums; font-size: 0.78rem; }

@@ -121,6 +121,17 @@ export function DeckPanel({ deck, title }) {
         >
           Cue
         </button>
+        <button
+          type="button"
+          className={`phones-btn${deck.headphones ? " phones-on" : ""}`}
+          onClick={() => deck.toggleHeadphones()}
+          aria-pressed={deck.headphones}
+          aria-label={`Deck ${deck.id.toUpperCase()} to the headphones`}
+          title="Hear this deck in the headphones (set up the headphones under the crossfader)"
+          data-testid={`headphones-${deck.id}`}
+        >
+          🎧
+        </button>
         <label className="volume">
           <span>Volume</span>
           <input

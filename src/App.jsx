@@ -10,6 +10,7 @@ import { UpdateStrip, AppMenu } from "./components/AppBar.jsx";
 import { decks, crossfader, setCrossfader } from "./audio/engine.js";
 import { autoDj } from "./audio/autodj.js";
 import { tabs, TABS, goTo } from "./audio/tabs.js";
+import { HeadphonesPanel, ControllerPanel } from "./components/GearPanel.jsx";
 
 const SITE = "https://thedrift3r.com";
 const SOURCE = "https://github.com/DanceOnVibes/driftmix";
@@ -84,6 +85,10 @@ export function App() {
             ? "The transition is doing the fade. The crossfader is yours again when it ends."
             : "Double-click the crossfader to centre it. Mixing works best on a laptop."}
         </p>
+        <div className="gear-grid">
+          <HeadphonesPanel />
+          <ControllerPanel />
+        </div>
         </div>
 
         <div className={group("autodj")} data-tab="autodj">
