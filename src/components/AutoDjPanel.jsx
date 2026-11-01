@@ -9,6 +9,7 @@ import { SetRecorder } from "./SetRecorder.jsx";
 import { UndoStrip } from "./UndoStrip.jsx";
 import { Fold } from "./Fold.jsx";
 import { RekordboxExport } from "./RekordboxExport.jsx";
+import { UsbCheck } from "./UsbCheck.jsx";
 import { demo, playDemo } from "../audio/demo.js";
 import {
   autoDj,
@@ -302,6 +303,7 @@ export function AutoDjPanel() {
       )}
       <UndoStrip undo={autoDj.undo} onUndo={undoClear} testid="autodj-undo" />
       {tracks.length > 0 && <RekordboxExport />}
+      <UsbCheck />
     </section>
   );
 }
