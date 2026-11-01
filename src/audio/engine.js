@@ -28,7 +28,7 @@ import { HOT_CUES, quantize, jumpTarget, loopAt, resizeLoop, wrapPosition, cueKe
 const CUES_SAVED = "driftmix.cues.v1";
 const JUMP_LEAD = 0.01; // seconds: a jump is scheduled this far ahead, so it can cross-fade
 /** Hot cues kept on this device, per track. */
-function savedCues(key) {
+export function savedCues(key) {
   try {
     const all = JSON.parse(localStorage.getItem(CUES_SAVED) || "{}");
     const c = all[key];

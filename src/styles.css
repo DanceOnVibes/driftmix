@@ -412,3 +412,26 @@ button.pad:active { background: rgba(212, 166, 74, 0.18); }
 .learn-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 8px; font-size: 0.85rem; }
 .learn-list li.learn-on { background: rgba(212, 166, 74, 0.12); }
 .learn-key { font-variant-numeric: tabular-nums; font-size: 0.78rem; }
+
+/* Export for rekordbox */
+.rbx { display: grid; gap: 10px; margin-top: 8px; }
+.rbx .btn { justify-self: start; }
+.rbx-steps { margin: 4px 0 0; padding-left: 20px; display: grid; gap: 6px; font-size: 0.85rem; color: var(--muted); }
+.rbx-steps b { color: var(--text); font-weight: 600; }
+@media (max-width: 480px) { .rbx .ff { grid-template-columns: 1fr; } }
+
+/* Check my USB */
+.usb { display: grid; gap: 10px; margin-top: 8px; }
+.usb > .btn { justify-self: start; }
+.usb-verdict { margin: 0; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--line); font-size: 0.9rem; }
+.usb-ready { border-color: rgba(90, 180, 110, 0.6); color: #9fe0ad; }
+.usb-problems, .usb-empty, .usb-none { color: var(--gold-bright); }
+.usb-empty, .usb-none { border-color: rgba(212, 166, 74, 0.6); }
+.usb-issues { margin: 0; padding-left: 20px; display: grid; gap: 6px; font-size: 0.85rem; }
+.usb-pl summary { cursor: pointer; padding: 6px 0; font-weight: 600; }
+.usb-tracks { margin: 0; padding-left: 26px; display: grid; gap: 2px; font-size: 0.82rem; }
+.usb-tracks li { display: grid; grid-template-columns: minmax(0, 1fr) 56px 40px 44px 20px; gap: 6px; align-items: center; }
+.usb-tracks li span:not(.usb-title) { color: var(--muted); text-align: right; }
+.usb-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.usb-bad .usb-title { color: var(--gold-bright); }
+@media (max-width: 480px) { .usb-tracks li { grid-template-columns: minmax(0, 1fr) 48px 36px 18px; } .usb-tracks li span:nth-child(4) { display: none; } }
