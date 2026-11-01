@@ -77,3 +77,39 @@ export function controlLabel(key) {
   const [type, channel, number] = String(key).split(":");
   return `${type === "cc" ? "CC" : "Note"} ${number} · ch ${Number(channel) + 1}`;
 }
+
+/**
+ * Ready-made layouts for controllers we know, so they work the moment
+ * they're plugged in (Learn can still change any of it). Numbers from the
+ * maker's published MIDI message list; MIDI channels here count from 0.
+ */
+export const PRESETS = [
+  {
+    id: "xdj-rx2",
+    name: "Pioneer XDJ-RX2",
+    match: /XDJ-RX2/i,
+    // Deck 1 on MIDI channel 1, deck 2 on channel 2; the performance pads on 6 and 7; the mixer's buttons on 5.
+    map: {
+      "play-a": "note:0:0",
+      "play-b": "note:1:0",
+      "cue-a": "note:0:1",
+      "cue-b": "note:1:1",
+      "hotcue1-a": "note:5:0",
+      "hotcue2-a": "note:5:1",
+      "hotcue3-a": "note:5:2",
+      "hotcue4-a": "note:5:3",
+      "hotcue1-b": "note:6:0",
+      "hotcue2-b": "note:6:1",
+      "hotcue3-b": "note:6:2",
+      "hotcue4-b": "note:6:3",
+      "headphones-a": "cc:4:70",
+      "headphones-b": "cc:4:71",
+    },
+    note: "Play, cue, hot cues 1–4 (pads in HOT CUE mode) and the headphone CUE buttons. Press MIDI on the XDJ-RX2 first.",
+  },
+];
+
+/** The ready-made layout for a controller, from the name the browser gives it. */
+export function presetFor(names) {
+  return PRESETS.find((p) => names.some((n) => p.match.test(n))) ?? null;
+}

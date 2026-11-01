@@ -6,7 +6,7 @@
  * Chrome and Edge can talk to controllers (Web MIDI); the browser asks for
  * permission the first time.
  */
-import { TARGETS, parseMidi, controlKey, valueFor } from "../lib/midi.js";
+import { TARGETS, parseMidi, controlKey, valueFor, controlLabel, presetFor, PRESETS } from "../lib/midi.js";
 import { decks, setCrossfader, crossfader } from "./engine.js";
 import { setCueMix, setHeadphoneVolume } from "./headphones.js";
 
@@ -27,6 +27,8 @@ export const controller = {
   map: load(), // { targetId: "cc:0:7" }
   learning: null, // the target waiting for a control
   last: "", // the last control moved, shown while learning
+  recent: [], // the last few messages, newest first: { label, value, at } (for checking a controller)
+  preset: null, // a ready-made layout for what's plugged in
   listeners: new Set(),
   subscribe(listener) {
     this.listeners.add(listener);
@@ -53,6 +55,7 @@ function listen() {
     input.onmidimessage = (e) => handleMidi(e.data);
     controller.inputs.push(input.name || "Controller");
   }
+  controller.preset = presetFor(controller.inputs);
   controller.emit();
 }
 
@@ -78,6 +81,23 @@ export function learn(targetId) {
   controller.emit();
 }
 
+/** Use a ready-made layout (it fills in its controls; anything else you learned stays). */
+export function usePreset(id) {
+  const p = PRESETS.find((x) => x.id === id);
+  if (!p) return;
+  const theirs = new Set(Object.values(p.map));
+  const kept = Object.fromEntries(Object.entries(controller.map).filter(([t, k]) => !(t in p.map) && !theirs.has(k)));
+  controller.map = { ...kept, ...p.map };
+  controller.learning = null;
+  save();
+  controller.emit();
+}
+
+/** Is this layout already in use? */
+export function presetInUse(p) {
+  return Boolean(p) && Object.entries(p.map).every(([t, k]) => controller.map[t] === k);
+}
+
 export function forget(targetId) {
   const { [targetId]: _gone, ...rest } = controller.map;
   controller.map = rest;
@@ -97,6 +117,7 @@ export function handleMidi(bytes) {
   const msg = parseMidi(bytes);
   if (!msg) return;
   const key = controlKey(msg);
+  controller.recent = [{ label: controlLabel(key), value: msg.type === "note" ? (msg.down ? "down" : "up") : msg.value, at: Date.now() }, ...controller.recent].slice(0, 8);
   if (controller.learning) {
     // Learn on a knob move, or on a pad going down (not on its release).
     if (msg.type === "note" && !msg.down) return;
@@ -117,6 +138,13 @@ export function handleMidi(bytes) {
     if (value === null) continue;
     act(id, value);
   }
+  if (watching) controller.emit();
+}
+
+let watching = false;
+/** Show each message as it arrives (only while someone's looking, so a busy controller doesn't redraw the page for nothing). */
+export function watchMessages(on) {
+  watching = on;
 }
 
 function act(id, value) {

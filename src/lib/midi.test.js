@@ -34,3 +34,23 @@ test("everything a DJ needs can be learned, once each", () => {
   assert.equal(new Set(ids).size, ids.length);
   for (const must of ["play-a", "cue-b", "low-a", "filter-b", "crossfader", "mix", "headphones-a", "hotcue4-b"]) assert.ok(ids.includes(must), must);
 });
+
+test("XDJ-RX2 layout: found by name, every control points at a real target, no control used twice", async () => {
+  const { PRESETS, presetFor, TARGETS: T } = await import("./midi.js");
+  assert.equal(presetFor(["Pioneer DJ XDJ-RX2 MIDI"])?.id, "xdj-rx2");
+  assert.equal(presetFor(["PIONEER DDJ-400"]), null);
+  for (const p of PRESETS) {
+    const ids = new Set(T.map((t) => t.id));
+    for (const [target, key] of Object.entries(p.map)) {
+      assert.ok(ids.has(target), `${p.id}: ${target} is a DriftMix function`);
+      assert.match(key, /^(note|cc):\d{1,2}:\d{1,3}$/);
+    }
+    const keys = Object.values(p.map);
+    assert.equal(new Set(keys).size, keys.length, `${p.id}: each control has one job`);
+  }
+  // Deck 1 play is note 0 on MIDI channel 1 (status byte 0x90): that's what the maker's list says.
+  const { parseMidi, controlKey } = await import("./midi.js");
+  assert.equal(controlKey(parseMidi([0x90, 0, 127])), PRESETS[0].map["play-a"]);
+  assert.equal(controlKey(parseMidi([0x96, 2, 127])), PRESETS[0].map["hotcue3-b"]);
+  assert.equal(controlKey(parseMidi([0xb4, 71, 127])), PRESETS[0].map["headphones-b"]);
+});
