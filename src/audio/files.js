@@ -8,7 +8,8 @@
  * with the tags written in.
  */
 import { analyzeBuffer, tempoSteadiness } from "./analysis.js";
-import { retunePlan } from "../lib/files/retune.js";
+import { retunePlan, retunedReading } from "../lib/files/retune.js";
+import { EXTEND_CHOICES } from "../lib/files/extend.js";
 import { sniff } from "../lib/files/sniff.js";
 import { MP3_RATES } from "../lib/files/mp3.js";
 import { makeZip } from "../lib/files/zip.js";
@@ -29,6 +30,7 @@ const defaults = {
     loudness: "off", // off | -14 | -9
     bass: "off", // what tracks get unless set on their own: off | auto (each track its own lift)
     trim: true,
+    extended: "off", // off | 16 | 32: bars of extra intro and outro (an extended mix for DJs)
     numbering: true,
     infoInName: true,
     orderBy: "tempo-up", // what "Put in order" puts first (see ORDER_BY)
@@ -256,6 +258,21 @@ export const BPM_SAFE = 6;
 /** What a track will come out as: tempo, key and how big the change is. */
 export function planFor(it) {
   return retunePlan(it.analysis || {}, { targetBpm: it.targetBpm, semitones: it.semitones });
+}
+
+/**
+ * The extended mix for one track, if it's switched on and the track can take
+ * it: a steady beat with a known first downbeat.
+ * @returns {{ introBars: number, outroBars: number, grid: { bpm: number, firstBeat: number } } | { skip: string } | null}
+ */
+export function extendFor(it, settings = files.settings) {
+  const bars = EXTEND_CHOICES[settings.extended] ?? 0;
+  if (!bars) return null;
+  const tempo = it.found?.tempo;
+  if (!(tempo?.bpm > 0) || !Number.isFinite(tempo.firstBeat)) return { skip: "no steady beat found, so no extended version" };
+  if (it.steady?.level === "wanders") return { skip: "the tempo wanders, so no extended version" };
+  const grid = retunedReading(it.found, planFor(it)).tempo;
+  return { introBars: bars, outroBars: bars, grid: { bpm: grid.bpm, firstBeat: grid.firstBeat } };
 }
 
 /** Exact BPM for one track ("" or 0 = keep its own). */
@@ -499,7 +516,7 @@ export function tagsFor(it, index) {
   const a = planFor(it);
   const comment = [a.camelot, c.comment].filter(Boolean).join(" · ");
   return {
-    title: it.title,
+    title: withExtended(it.title, it),
     artist: c.artist,
     albumArtist: c.artist,
     album: c.album,
@@ -514,12 +531,18 @@ export function tagsFor(it, index) {
   };
 }
 
+/** "Title" → "Title (Extended Mix)" when this track gets an extended version (the DJ convention). */
+function withExtended(title, it) {
+  const e = extendFor(it);
+  return e && !e.skip && title && !/extended mix/i.test(title) ? `${title} (Extended Mix)` : title;
+}
+
 export function nameFor(it, index) {
   const s = files.settings;
   return exportName({
     track: s.numbering ? index + 1 : undefined,
     artist: files.common.artist,
-    title: it.title || "Untitled",
+    title: withExtended(it.title || "Untitled", it),
     bpm: planFor(it).bpm,
     camelot: planFor(it).camelot,
     ext: s.format === "mp3" ? "mp3" : "wav",
@@ -553,6 +576,8 @@ export async function convertAll() {
       const settings = { ...files.settings };
       const plan = planFor(it);
       const bass = bassFor(it);
+      const ext = extendFor(it, settings);
+      const extend = ext && !ext.skip ? ext : null;
       const id = jobId++;
       const result = await new Promise((resolve, reject) => {
         waiting.set(id, {
@@ -563,7 +588,7 @@ export async function convertAll() {
             files.emit();
           },
         });
-        getWorker().postMessage({ id, channels, sampleRate: rate, settings, plan, bassDb: bass.db, tags: tagsFor(it, index) }, channels.map((c) => c.buffer));
+        getWorker().postMessage({ id, channels, sampleRate: rate, settings, plan, bassDb: bass.db, extend, tags: tagsFor(it, index) }, channels.map((c) => c.buffer));
       });
       const type = settings.format === "mp3" ? "audio/mpeg" : "audio/wav";
       const blob = new Blob([result.bytes], { type });
@@ -573,6 +598,8 @@ export async function convertAll() {
       const notes = [];
       if (plan.tempo !== 1) notes.push(`exactly ${fmtBpm(plan.bpm)} BPM (${plan.percent > 0 ? "+" : "−"}${Math.abs(plan.percent).toFixed(1)}%)`);
       if (plan.semitones) notes.push(`key ${plan.semitones > 0 ? "+" : "−"}${Math.abs(plan.semitones)} → ${plan.camelot}`);
+      if (result.extended) notes.push(`extended mix: +${extend.introBars} bars intro (from bar ${result.extended.introBar}), +${extend.outroBars} bars outro (from bar ${result.extended.outroBar}), ${fmtLength(result.seconds)} long`);
+      else if (ext?.skip) notes.push(ext.skip);
       if (bass.db > 0) notes.push(`bass +${fmtDb(bass.db)} dB${bass.mode === "auto" ? " (auto)" : ""}`);
       if (result.loudness) notes.push(`${fmtLufs(result.loudness.result)} LUFS${result.loudness.heldBack ? " (peaks kept safe, so a little under)" : ""}`);
       if (result.trimmed > 0.05) notes.push(`trimmed ${result.trimmed.toFixed(1)} s of silence`);
@@ -588,6 +615,11 @@ export async function convertAll() {
   files.busy = false;
   files.message = `${done} of ${todo.length} converted.`;
   files.emit();
+}
+
+function fmtLength(seconds) {
+  const m = Math.floor(seconds / 60);
+  return `${m}:${String(Math.round(seconds - m * 60)).padStart(2, "0")}`;
 }
 
 function fmtDb(x) {
