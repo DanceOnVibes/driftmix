@@ -48,6 +48,7 @@ if (new URLSearchParams(window.location.search).has("debug")) {
       files: filesMod.files,
       analyzeBuffer: analysis.analyzeBuffer,
       master: engine.masterNode,
+      masterOutput: engine.masterOutput,
       sampler: samplerMod.sampler,
     };
   });

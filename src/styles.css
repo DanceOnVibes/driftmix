@@ -378,3 +378,22 @@ button.pad:active { background: rgba(212, 166, 74, 0.18); }
 /* ---------- Studio bass: drop before / after ---------- */
 .fpreview { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .fpreview .bar-choice { padding: 6px 12px; font-size: 0.8rem; }
+
+/* ---------- DJ knobs on each deck ---------- */
+.mixer-strip { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 6px 4px; padding: 10px 8px 6px; border: 1px solid var(--line); border-radius: 12px; background: #000; }
+.eq-col { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.knob { display: flex; flex-direction: column; align-items: center; gap: 1px; min-width: 56px; user-select: none; }
+.knob-dial { width: 52px; height: 52px; border-radius: 50%; cursor: ns-resize; touch-action: none; }
+.knob-dial:focus-visible { outline: 2px solid var(--gold-bright); outline-offset: 2px; }
+.knob-track { fill: none; stroke: rgba(212, 166, 74, 0.18); stroke-width: 4; stroke-linecap: round; }
+.knob-value { fill: none; stroke: var(--gold); stroke-width: 4; stroke-linecap: round; }
+.knob-cap { fill: #15100a; stroke: rgba(212, 166, 74, 0.45); stroke-width: 1; }
+.knob-pointer { stroke: var(--gold-bright); stroke-width: 2.5; stroke-linecap: round; }
+.knob-label { color: var(--gold); font: 700 0.68rem var(--sans); letter-spacing: 0.12em; }
+.knob-readout { color: var(--muted); font-size: 0.72rem; font-variant-numeric: tabular-nums; min-height: 1em; }
+.knob-killed .knob-value, .knob-killed .knob-pointer { stroke: #c0503c; }
+.knob-killed .knob-readout { color: #e07a5f; }
+.kill { appearance: none; border: 1px solid rgba(212, 166, 74, 0.4); background: transparent; color: var(--muted); border-radius: 999px; padding: 3px 12px; font: 600 0.7rem var(--sans); letter-spacing: 0.06em; cursor: pointer; }
+.kill-on { background: #c0503c; border-color: #c0503c; color: #fff; }
+.mixer-reset { flex-basis: 100%; text-align: right; font-size: 0.78rem; }
+@media (max-width: 480px) { .mixer-strip { display: grid; grid-template-columns: repeat(3, 1fr); justify-items: center; gap: 10px 4px; } .mixer-reset { grid-column: 1 / -1; justify-self: end; } }

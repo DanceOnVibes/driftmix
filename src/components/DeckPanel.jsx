@@ -3,6 +3,8 @@ import { useDeck } from "./useDeck.js";
 import { Waveform } from "./Waveform.jsx";
 import { formatTime } from "../lib/mixer.js";
 import { LOOP_BEATS } from "../lib/cues.js";
+import { knobLabel } from "../lib/djmixer.js";
+import { Knob } from "./Knob.jsx";
 
 /**
  * One deck: load a track (button or drag and drop), see its waveform,
@@ -133,8 +135,52 @@ export function DeckPanel({ deck, title }) {
         </label>
       </div>
 
+      <DeckMixer deck={deck} />
+
       {loaded && <CueLoop deck={deck} />}
     </section>
+  );
+}
+
+/**
+ * The DJ's knobs for this deck: LOW / MID / HIGH (with kills), FILTER, ECHO
+ * and VERB. Separate from the transitions, which never move them.
+ */
+function DeckMixer({ deck }) {
+  const id = deck.id;
+  const touched = deck.filter !== 0 || deck.echo > 0 || deck.verb > 0 || Object.values(deck.eq).some((v) => v !== 0) || Object.values(deck.kills).some(Boolean);
+  return (
+    <div className="mixer-strip" role="group" aria-label={`Deck ${id.toUpperCase()} EQ, filter and effects`}>
+      {["low", "mid", "high"].map((band) => (
+        <div key={band} className="eq-col">
+          <Knob
+            label={band.toUpperCase()}
+            value={deck.eq[band]}
+            onChange={(v) => deck.setEq(band, v)}
+            readout={deck.kills[band] ? "killed" : knobLabel("eq", deck.eq[band])}
+            killed={deck.kills[band]}
+            testid={`eq-${band}-${id}`}
+          />
+          <button
+            type="button"
+            className={`kill${deck.kills[band] ? " kill-on" : ""}`}
+            aria-pressed={deck.kills[band]}
+            onClick={() => deck.toggleKill(band)}
+            data-testid={`kill-${band}-${id}`}
+          >
+            Kill
+          </button>
+        </div>
+      ))}
+      <Knob label="FILTER" value={deck.filter} onChange={(v) => deck.setFilter(v)} readout={knobLabel("filter", deck.filter)} testid={`filter-${id}`} />
+      <Knob label="ECHO" value={deck.echo} bipolar={false} onChange={(v) => deck.setFx("echo", v)} readout={knobLabel("fx", deck.echo)} testid={`echo-${id}`} />
+      <Knob label="VERB" value={deck.verb} bipolar={false} onChange={(v) => deck.setFx("verb", v)} readout={knobLabel("fx", deck.verb)} testid={`verb-${id}`} />
+      {touched && (
+        <button type="button" className="link-btn mixer-reset" onClick={() => deck.resetKnobs()} data-testid={`knobs-reset-${id}`}>
+          Reset knobs
+        </button>
+      )}
+    </div>
   );
 }
 
