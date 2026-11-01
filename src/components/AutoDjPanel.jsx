@@ -10,6 +10,7 @@ import { UndoStrip } from "./UndoStrip.jsx";
 import { Fold } from "./Fold.jsx";
 import { RekordboxExport } from "./RekordboxExport.jsx";
 import { UsbCheck } from "./UsbCheck.jsx";
+import { BridgesPanel } from "./BridgesPanel.jsx";
 import { demo, playDemo } from "../audio/demo.js";
 import {
   autoDj,
@@ -214,6 +215,7 @@ export function AutoDjPanel() {
           </label>
         </div>
       </Fold>
+      <BridgesPanel />
 
       <p className="autodj-status" role="status" data-testid="autodj-status">
         {tracks.length === 0
