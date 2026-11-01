@@ -204,6 +204,14 @@ export function FilesPanel() {
               <option value="auto">Studio bass: Auto, each track its own</option>
             </select>
           </label>
+          <label className="ff">
+            <span>Extended mix</span>
+            <select value={s.extended} onChange={(e) => setSetting("extended", e.target.value)} disabled={files.busy} data-testid="opt-extended">
+              <option value="off">No, keep the length</option>
+              <option value="16">Yes: +16 bars intro and outro</option>
+              <option value="32">Yes: +32 bars intro and outro (club)</option>
+            </select>
+          </label>
           <label className="fcheck">
             <input type="checkbox" checked={s.trim} onChange={(e) => setSetting("trim", e.target.checked)} disabled={files.busy} data-testid="opt-trim" />
             <span>Trim silence at the start and end</span>
@@ -531,6 +539,7 @@ function filesSummary() {
     s.channels,
     s.loudness === "off" ? "" : `${s.loudness} LUFS`,
     s.bass === "auto" ? "studio bass: auto" : "",
+    s.extended !== "off" ? `extended +${s.extended} bars` : "",
     c.artist ? `artist: ${c.artist}` : "no artist set",
     files.cover ? "cover" : "",
   ]
