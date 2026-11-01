@@ -8,9 +8,10 @@ import { encodeWav } from "../lib/files/wav.js";
 import { integratedLufs, loudnessGain } from "../lib/files/loudness.js";
 import { trimSilence, toMono, peakDb, applyGainDb } from "../lib/files/tools.js";
 import { retune } from "../lib/files/retune.js";
+import { applyBass } from "../lib/files/bass.js";
 
 self.onmessage = (event) => {
-  const { id, channels, sampleRate, settings, tags, plan } = event.data;
+  const { id, channels, sampleRate, settings, tags, plan, bassDb } = event.data;
   try {
     let ch = channels;
     if (settings.channels === "mono") ch = toMono(ch);
@@ -19,6 +20,8 @@ self.onmessage = (event) => {
       ch = retune(ch, sampleRate, plan);
       self.postMessage({ id, progress: 0.35 });
     }
+    // Studio bass: rumble cut, warm shelf, mud dip, limiter (peaks under −1 dB).
+    if (bassDb > 0) ch = applyBass(ch, sampleRate, bassDb).channels;
     let trimmed = 0;
     if (settings.trim) {
       const before = ch[0].length;
