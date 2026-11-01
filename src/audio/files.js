@@ -14,6 +14,7 @@ import { MP3_RATES } from "../lib/files/mp3.js";
 import { makeZip } from "../lib/files/zip.js";
 import { exportName, shortKey, safeName, tidyName } from "../lib/files/naming.js";
 import { orderTracks, ORDER_BY } from "../lib/setlist.js";
+import { bassBalance, autoBassDb, loudestStart, BASS_MAX_DB } from "../lib/files/bass.js";
 
 const AUDIO_NAME = /\.(mp3|wav|flac|aiff?|m4a|aac|ogg|opus)$/i;
 const SAVED = "driftmix.files.v1";
@@ -26,6 +27,7 @@ const defaults = {
     sampleRate: "original", // original | 44100 | 48000
     channels: "stereo", // stereo | mono
     loudness: "off", // off | -14 | -9
+    bass: "off", // what tracks get unless set on their own: off | auto (each track its own lift)
     trim: true,
     numbering: true,
     infoInName: true,
@@ -117,7 +119,7 @@ let reading = Promise.resolve();
 export function addFiles(list) {
   const picked = [...list].filter((f) => f.type.startsWith("audio/") || AUDIO_NAME.test(f.name));
   for (const file of picked) {
-    const it = { id: String(nextId++), file, title: cleanTitle(file.name), status: "reading", info: null, analysis: null, found: null, duration: 0, output: null, progress: 0, note: "", targetBpm: null, semitones: 0, steady: null };
+    const it = { id: String(nextId++), file, title: cleanTitle(file.name), status: "reading", info: null, analysis: null, found: null, duration: 0, output: null, progress: 0, note: "", targetBpm: null, semitones: 0, steady: null, bass: null, bassAuto: null, dropAt: 0 };
     files.items.push(it);
     reading = reading.then(() => inspect(it));
   }
@@ -149,8 +151,13 @@ export function restoreItems(saved) {
       targetBpm: s.targetBpm ?? null,
       semitones: s.semitones || 0,
       steady: s.steady ?? null,
+      bass: s.bass ?? null,
+      bassAuto: s.bassAuto ?? null,
+      dropAt: s.dropAt || 0,
     };
     if (!it.analysis) reading = reading.then(() => inspect(it));
+    // Kept from before Bass existed: measure the low end now.
+    else if (it.bassAuto === null) reading = reading.then(() => measureLowEnd(it));
     return it;
   });
   files.items = [...back, ...files.items];
@@ -181,6 +188,7 @@ async function inspect(it) {
       keySure: Boolean(result.key?.sure),
       keyAlt: result.key?.alt?.camelot ?? null,
     };
+    measureBuffer(it, buffer);
     it.status = "ready";
     files.emit();
     // Then: does the tempo stay the same all through? (Exact BPM can only
@@ -191,6 +199,53 @@ async function inspect(it) {
     it.note = "This file couldn't be read.";
   }
   files.emit();
+}
+
+// ---- bass ------------------------------------------------------------------
+
+/** How full the low end is, the lift Auto gives it, and where the drop is (for the preview). */
+function measureBuffer(it, buffer) {
+  const channels = [];
+  for (let c = 0; c < Math.min(2, buffer.numberOfChannels); c++) channels.push(buffer.getChannelData(c));
+  it.bassAuto = autoBassDb(bassBalance(channels, buffer.sampleRate));
+  it.dropAt = loudestStart(channels, buffer.sampleRate, 20);
+}
+
+/** For a track kept from before Bass existed: read it once more, just for its low end. */
+async function measureLowEnd(it) {
+  if (!files.items.includes(it)) return;
+  try {
+    const bytes = await it.file.arrayBuffer();
+    const ctx = new OfflineAudioContext(2, 1, it.info?.sampleRate || 44100);
+    measureBuffer(it, await ctx.decodeAudioData(bytes));
+  } catch {
+    it.bassAuto = 0;
+  }
+  files.emit();
+}
+
+/**
+ * The bass a track will get: its own setting, or the one for every track.
+ * @returns {{ db: number, mode: "off"|"auto"|"set", auto: number|null }}
+ */
+export function bassFor(it) {
+  const choice = it.bass ?? files.settings.bass;
+  if (choice === "auto") return { db: it.bassAuto ?? 0, mode: "auto", auto: it.bassAuto };
+  if (typeof choice === "number" && choice > 0) return { db: choice, mode: "set", auto: it.bassAuto };
+  return { db: 0, mode: "off", auto: it.bassAuto };
+}
+
+/** Bass for one track: "" = as set for every track, "off", "auto", or a number of dB (1 … 6). */
+export function setBass(id, value) {
+  const it = files.items.find((x) => x.id === id);
+  if (!it || files.busy) return;
+  if (value === "" || value === null) it.bass = null;
+  else if (value === "off" || value === "auto") it.bass = value;
+  else {
+    const n = Math.round(Number(value) * 2) / 2;
+    it.bass = n > 0 ? Math.min(BASS_MAX_DB, n) : "off";
+  }
+  changed(it);
 }
 
 // ---- exact BPM and key ---------------------------------------------------
@@ -497,6 +552,7 @@ export async function convertAll() {
       files.emit();
       const settings = { ...files.settings };
       const plan = planFor(it);
+      const bass = bassFor(it);
       const id = jobId++;
       const result = await new Promise((resolve, reject) => {
         waiting.set(id, {
@@ -507,7 +563,7 @@ export async function convertAll() {
             files.emit();
           },
         });
-        getWorker().postMessage({ id, channels, sampleRate: rate, settings, plan, tags: tagsFor(it, index) }, channels.map((c) => c.buffer));
+        getWorker().postMessage({ id, channels, sampleRate: rate, settings, plan, bassDb: bass.db, tags: tagsFor(it, index) }, channels.map((c) => c.buffer));
       });
       const type = settings.format === "mp3" ? "audio/mpeg" : "audio/wav";
       const blob = new Blob([result.bytes], { type });
@@ -517,6 +573,7 @@ export async function convertAll() {
       const notes = [];
       if (plan.tempo !== 1) notes.push(`exactly ${fmtBpm(plan.bpm)} BPM (${plan.percent > 0 ? "+" : "−"}${Math.abs(plan.percent).toFixed(1)}%)`);
       if (plan.semitones) notes.push(`key ${plan.semitones > 0 ? "+" : "−"}${Math.abs(plan.semitones)} → ${plan.camelot}`);
+      if (bass.db > 0) notes.push(`bass +${fmtDb(bass.db)} dB${bass.mode === "auto" ? " (auto)" : ""}`);
       if (result.loudness) notes.push(`${fmtLufs(result.loudness.result)} LUFS${result.loudness.heldBack ? " (peaks kept safe, so a little under)" : ""}`);
       if (result.trimmed > 0.05) notes.push(`trimmed ${result.trimmed.toFixed(1)} s of silence`);
       if (settings.sampleRate === "original" && settings.format === "mp3" && rate !== it.info?.sampleRate) notes.push(`${rate / 1000} kHz (MP3 can't do ${it.info?.sampleRate / 1000} kHz)`);
@@ -531,6 +588,10 @@ export async function convertAll() {
   files.busy = false;
   files.message = `${done} of ${todo.length} converted.`;
   files.emit();
+}
+
+function fmtDb(x) {
+  return Number.isInteger(x) ? String(x) : x.toFixed(1);
 }
 
 function fmtBpm(x) {

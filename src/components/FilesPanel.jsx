@@ -26,7 +26,10 @@ import {
   undoClear,
   setOrderBy,
   orderFiles,
+  bassFor,
+  setBass,
 } from "../audio/files.js";
+import { preview, playPreview, setSide, stopPreview } from "../audio/bassPreview.js";
 import { ORDER_BY } from "../lib/setlist.js";
 import { UndoStrip } from "./UndoStrip.jsx";
 import { Fold } from "./Fold.jsx";
@@ -42,6 +45,7 @@ const STATUS = { reading: "Reading…", ready: "Ready", converting: "Converting"
  */
 export function FilesPanel() {
   const [, refresh] = useReducer((n) => n + 1, 0);
+  useEffect(() => preview.subscribe(refresh), []);
   useEffect(() => {
     const offs = [files.subscribe(refresh), autoDj.subscribe(refresh)];
     return () => offs.forEach((off) => off());
@@ -193,6 +197,13 @@ export function FilesPanel() {
               <option value="-9">Even out: club (−9 LUFS)</option>
             </select>
           </label>
+          <label className="ff">
+            <span>Bass</span>
+            <select value={s.bass} onChange={(e) => setSetting("bass", e.target.value)} disabled={files.busy} data-testid="opt-bass">
+              <option value="off">Leave as it is</option>
+              <option value="auto">Studio bass: Auto, each track its own</option>
+            </select>
+          </label>
           <label className="fcheck">
             <input type="checkbox" checked={s.trim} onChange={(e) => setSetting("trim", e.target.checked)} disabled={files.busy} data-testid="opt-trim" />
             <span>Trim silence at the start and end</span>
@@ -307,7 +318,10 @@ export function FilesPanel() {
 
       {items.length > 0 && (
         <div className="factions">
-          <button type="button" className="btn btn-gold" onClick={() => void convertAll()} disabled={files.busy || reading || !waiting.length} data-testid="convert">
+          <button type="button" className="btn btn-gold" onClick={() => {
+            stopPreview();
+            void convertAll();
+          }} disabled={files.busy || reading || !waiting.length} data-testid="convert">
             {files.busy ? "Converting…" : `Convert ${waiting.length || ""}`.trim()}
           </button>
           {done.length > 0 && !zip && (
@@ -419,8 +433,66 @@ function Retune({ it, index, busy }) {
               : `Tempo wanders ${fmt(st.min)}–${fmt(st.max)} BPM: exact BPM sets the average, it can't straighten it`}
         </span>
       )}
+      <BassControl it={it} index={index} busy={busy} />
     </div>
   );
+}
+
+/** Bass for one track, and the drop before / after. */
+function BassControl({ it, index, busy }) {
+  const bass = bassFor(it);
+  const auto = it.bassAuto;
+  const dflt = files.settings.bass === "auto" ? `Auto${auto !== null ? ` (+${fmtDb(auto)} dB)` : ""}` : "off";
+  const value = it.bass === null ? "" : String(it.bass);
+  // The preview plays what the file will get, or what Auto would give when bass is off.
+  const hearDb = bass.db > 0 ? bass.db : auto || 0;
+  const playing = preview.id === it.id;
+  return (
+    <>
+      <label className="fsmall">
+        <span>Bass</span>
+        <select value={value} onChange={(e) => setBass(it.id, e.target.value)} disabled={busy} data-testid={`bass-${index}`}>
+          <option value="">As set above ({dflt})</option>
+          <option value="off">Off</option>
+          <option value="auto">Auto{auto !== null ? ` (+${fmtDb(auto)} dB)` : ""}</option>
+          {[1, 2, 3, 4, 5, 6].map((n) => (
+            <option key={n} value={n}>
+              +{n} dB
+            </option>
+          ))}
+        </select>
+      </label>
+      {bass.mode !== "off" && (
+        <span className="fchange" data-testid={`bass-note-${index}`}>
+          {bass.db > 0 ? `Studio bass +${fmtDb(bass.db)} dB${bass.mode === "auto" ? " (auto)" : ""}` : "Full low end already: Auto adds nothing"}
+        </span>
+      )}
+      {hearDb > 0 &&
+        (playing ? (
+          <span className="fpreview">
+            <span className="bars" role="radiogroup" aria-label={`Hear ${it.title}: original or with bass`}>
+              <button type="button" role="radio" aria-checked={preview.side === "before"} className={`bar-choice${preview.side === "before" ? " bar-on" : ""}`} onClick={() => setSide("before")} data-testid={`hear-before-${index}`}>
+                Original
+              </button>
+              <button type="button" role="radio" aria-checked={preview.side === "after"} className={`bar-choice${preview.side === "after" ? " bar-on" : ""}`} onClick={() => setSide("after")} data-testid={`hear-after-${index}`}>
+                {preview.loading ? "Loading…" : `With bass +${fmtDb(preview.db)}`}
+              </button>
+            </span>
+            <button type="button" className="link-btn" onClick={() => stopPreview()} data-testid={`hear-stop-${index}`}>
+              Stop
+            </button>
+          </span>
+        ) : (
+          <button type="button" className="btn btn-ghost btn-small" onClick={() => void playPreview(it, hearDb)} disabled={busy} data-testid={`hear-${index}`}>
+            ▶ Drop: before / after
+          </button>
+        ))}
+    </>
+  );
+}
+
+function fmtDb(x) {
+  return Number.isInteger(x) ? String(x) : x.toFixed(1);
 }
 
 function fmt(bpm) {
@@ -458,6 +530,7 @@ function filesSummary() {
     s.sampleRate === "original" ? "original rate" : `${Number(s.sampleRate) / 1000} kHz`,
     s.channels,
     s.loudness === "off" ? "" : `${s.loudness} LUFS`,
+    s.bass === "auto" ? "studio bass: auto" : "",
     c.artist ? `artist: ${c.artist}` : "no artist set",
     files.cover ? "cover" : "",
   ]

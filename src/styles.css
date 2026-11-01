@@ -374,3 +374,7 @@ button.pad:active { background: rgba(212, 166, 74, 0.18); }
 }
 .foot .made-by { color: var(--text); }
 .foot .made-by a { color: var(--gold); }
+
+/* ---------- Studio bass: drop before / after ---------- */
+.fpreview { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.fpreview .bar-choice { padding: 6px 12px; font-size: 0.8rem; }
