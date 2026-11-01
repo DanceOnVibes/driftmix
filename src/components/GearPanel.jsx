@@ -1,8 +1,8 @@
-import { useEffect, useReducer } from "react";
+import { useEffect, useReducer, useState } from "react";
 import { Knob } from "./Knob.jsx";
 import { Fold } from "./Fold.jsx";
 import { headphones, setHeadphoneMode, setCueMix, setHeadphoneVolume, findOutputs } from "../audio/headphones.js";
-import { controller, connectController, learn, forget, forgetAll } from "../audio/controller.js";
+import { controller, connectController, learn, forget, forgetAll, usePreset, presetInUse, watchMessages } from "../audio/controller.js";
 import { TARGETS, controlLabel } from "../lib/midi.js";
 import { decks } from "../audio/engine.js";
 
@@ -63,6 +63,27 @@ export function HeadphonesPanel() {
   );
 }
 
+/** What the controller sends, live: for checking a controller (and telling us its numbers). */
+function Messages() {
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    watchMessages(on);
+    return () => watchMessages(false);
+  }, [on]);
+  return (
+    <div className="midi-monitor">
+      <button type="button" className="link-btn" onClick={() => setOn(!on)} data-testid="monitor-toggle">
+        {on ? "Hide what the controller sends" : "Show what the controller sends"}
+      </button>
+      {on && (
+        <ol className="monitor-list" data-testid="monitor">
+          {controller.recent.length ? controller.recent.map((m) => <li key={m.at + m.label + m.value}>{`${m.label} → ${m.value}`}</li>) : <li className="muted">Move a knob or press a button…</li>}
+        </ol>
+      )}
+    </div>
+  );
+}
+
 /** Controller: connect, then Learn each function. */
 export function ControllerPanel() {
   useStore(controller);
@@ -90,6 +111,25 @@ export function ControllerPanel() {
           </button>
         )}
       </div>
+      {c.preset && (
+        <div className="preset" data-testid="preset">
+          {presetInUse(c.preset) ? (
+            <p className="fnote" data-testid="preset-on">
+              ✓ {c.preset.name} layout in use. {c.preset.note}
+            </p>
+          ) : (
+            <>
+              <p className="fnote">
+                {c.preset.name} found. Use its ready-made layout? {c.preset.note}
+              </p>
+              <button type="button" className="btn btn-ghost btn-small" onClick={() => usePreset(c.preset.id)} data-testid="preset-use">
+                Use the {c.preset.name} layout
+              </button>
+            </>
+          )}
+        </div>
+      )}
+      {c.status === "on" && <Messages />}
       <Fold id="controller-map" label="Learn" summary={learned ? `${learned} control${learned === 1 ? "" : "s"} learned` : "nothing learned yet"}>
         {c.learning && (
           <p className="fnote" role="status" data-testid="learning">
