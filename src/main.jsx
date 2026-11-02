@@ -36,7 +36,8 @@ if (new URLSearchParams(window.location.search).has("debug")) {
     import("./audio/sampler.js"),
     import("./audio/headphones.js"),
     import("./audio/controller.js"),
-  ]).then(([engine, transition, booth, autodj, setrec, keep, filesMod, analysis, samplerMod, phones, ctl]) => {
+    import("./audio/bridges.js"),
+  ]).then(([engine, transition, booth, autodj, setrec, keep, filesMod, analysis, samplerMod, phones, ctl, bridgesMod]) => {
     window.driftmix = {
       decks: engine.decks,
       crossfader: engine.crossfader,
@@ -55,6 +56,7 @@ if (new URLSearchParams(window.location.search).has("debug")) {
       sampler: samplerMod.sampler,
       headphones: phones,
       controller: ctl,
+      bridges: bridgesMod.bridges,
     };
   });
 }

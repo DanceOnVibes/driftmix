@@ -12,7 +12,7 @@
  */
 import { audioContext, decks, masterOutput } from "./engine.js";
 import { mix, isActive } from "./transition.js";
-import { autoDj } from "./autodj.js";
+import { autoDj, isBridgeId, nameOfId } from "./autodj.js";
 import { files } from "./files.js";
 import { tracklistText } from "../lib/bridge.js";
 
@@ -118,11 +118,12 @@ function fail(message) {
 /** The name to put in the tracklist for whatever is on a deck. */
 function nameOn(deck) {
   const id = autoDj.onDeck[deck.id];
-  return autoDj.tracks.find((t) => t.id === id)?.name || deck.name || "Untitled";
+  if (isBridgeId(id)) return ""; // a bridge clip is a DJ tool, not a track: left out of the tracklist
+  return nameOfId(id) || deck.name || "Untitled";
 }
 
 function mark(atTime, name, key) {
-  if (setRec.state !== "recording") return;
+  if (setRec.state !== "recording" || !name) return;
   const at = Math.max(0, atTime - startTime);
   setRec.entries = setRec.entries.filter((e) => e.key !== key);
   setRec.entries.push({ at, name, key });

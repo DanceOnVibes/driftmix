@@ -16,6 +16,7 @@
 import { files, restoreItems } from "./files.js";
 import { autoDj, restoreTracks } from "./autodj.js";
 import { sampler, restorePads } from "./sampler.js";
+import { bridges, restoreClips } from "./bridges.js";
 
 const DB = "driftmix-keep";
 const AUDIO = "audio"; // key → File
@@ -87,7 +88,11 @@ function snapshot() {
     tracks: autoDj.tracks
       .filter((t) => t.status !== "failed")
       .map((t) => ({ key: need(t.file), name: t.name, plan: t.plan, found: t.found, duration: t.sourceDuration })),
-    settings: { tempoChoice: autoDj.tempoChoice, bars: autoDj.bars, bridge: autoDj.bridge, buildUps: autoDj.buildUps, orderBy: autoDj.orderBy },
+    settings: { tempoChoice: autoDj.tempoChoice, bars: autoDj.bars, bridge: autoDj.bridge, buildUps: autoDj.buildUps, orderBy: autoDj.orderBy, clipMode: bridges.mode },
+    // Bridge clips, with what was read from them (so they don't have to be read again).
+    clips: bridges.clips
+      .filter((c) => c.status === "ready")
+      .map((c) => ({ key: need(c.file), name: c.name, bpm: c.bpm, firstBeat: c.firstBeat, bars: c.bars, start: c.start, end: c.end })),
   };
   return { fileList, playlist, audio };
 }
@@ -152,7 +157,7 @@ export async function startKeeping() {
       asked(tx.objectStore(LISTS).get("pads")),
     ]);
     for (const key of keys) stored.add(String(key));
-    const wanted = [...new Set([...(fileList || []).map((e) => e.key), ...(playlist?.tracks || []).map((e) => e.key)])].filter((k) => stored.has(k));
+    const wanted = [...new Set([...(fileList || []).map((e) => e.key), ...(playlist?.tracks || []).map((e) => e.key), ...(playlist?.clips || []).map((e) => e.key)])].filter((k) => stored.has(k));
     const read = db.transaction(AUDIO, "readonly");
     const got = await Promise.all(wanted.map((k) => asked(read.objectStore(AUDIO).get(k))));
     const byKey = new Map(wanted.map((k, i) => [k, got[i]]));
@@ -165,6 +170,8 @@ export async function startKeeping() {
       files.emit();
     }
     if (backTracks.length || playlist?.settings) restoreTracks({ tracks: backTracks, settings: playlist?.settings });
+    const backClips = withFile(playlist?.clips);
+    if (backClips.length || playlist?.settings?.clipMode) restoreClips(backClips, ["every", "clash", "off"].includes(playlist?.settings?.clipMode) ? playlist.settings.clipMode : null);
     if (pads?.some(Boolean)) {
       restorePads(pads);
       savedPads = sampler.padsVersion;
@@ -179,6 +186,7 @@ export async function startKeeping() {
   restored = true;
   files.subscribe(scheduleSave);
   autoDj.subscribe(scheduleSave);
+  bridges.subscribe(scheduleSave);
   sampler.subscribe(() => sampler.padsVersion !== savedPads && scheduleSave());
   scheduleSave();
   // Ask the browser not to clear the kept tracks when space runs low.

@@ -439,3 +439,9 @@ button.pad:active { background: rgba(212, 166, 74, 0.18); }
 .usb-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .usb-bad .usb-title { color: var(--gold-bright); }
 @media (max-width: 480px) { .usb-tracks li { grid-template-columns: minmax(0, 1fr) 48px 36px 18px; } .usb-tracks li span:nth-child(4) { display: none; } }
+
+/* Bridges */
+.bridges { display: grid; gap: 10px; margin-top: 8px; }
+.clip-list { margin: 0; padding-left: 24px; display: grid; gap: 4px; font-size: 0.85rem; }
+.clip-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: center; }
+.clip-list .row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

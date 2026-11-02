@@ -15,6 +15,9 @@
  *    skipping the track (unless the bridge is switched off).
  *  - Mixes start on an 8-bar phrase line near the end of each track; tracks
  *    with a "?" tempo get an 8-bar blend so the beats stay tight.
+ *  - Bridges: with clips in the Bridges list, a short beat-only clip plays
+ *    between tracks (every mix, or only where the keys clash): A blends into
+ *    the clip, the clip carries the beat, B blends in (see bridges.js).
  *  - Touching a deck hands control back to you (Auto DJ switches off).
  */
 import { tidyName } from "../lib/files/naming.js";
@@ -26,6 +29,8 @@ import { chooseMix, settlePoint } from "../lib/bridge.js";
 import { tempoMatch, TEMPO_AMBER } from "../lib/match.js";
 import { retunedReading } from "../lib/files/retune.js";
 import { offerUndo } from "./files.js";
+import { bridges, makeBridge, readyClips } from "./bridges.js";
+import { bridgeDue, BRIDGE_BLEND_BARS } from "../lib/bridgeClip.js";
 
 const AUDIO_NAME = /\.(mp3|wav|flac|aiff?|m4a|aac|ogg|opus)$/i;
 
@@ -59,6 +64,18 @@ export const autoDj = {
 
 let nextId = 1;
 let reading = Promise.resolve();
+/** Bridges on a deck: their id ("bridge:…") → { after: the track they follow, name }. */
+const bridgeInfo = new Map();
+let bridgeCount = 0;
+
+/** Is this deck's "track" a bridge clip? */
+export const isBridgeId = (id) => typeof id === "string" && id.startsWith("bridge:");
+
+/** The name of whatever is on a deck (a playlist track or a bridge). */
+export function nameOfId(id) {
+  if (isBridgeId(id)) return bridgeInfo.get(id)?.name ?? "Bridge";
+  return autoDj.tracks.find((t) => t.id === id)?.name ?? "";
+}
 let timer = null;
 let busy = false; // Auto DJ is loading or starting something itself
 
@@ -350,18 +367,46 @@ async function loadOnto(deck, track) {
   }
 }
 
-/** Load the track after `afterId` onto `deck`, skipping ones that can't join. */
+/**
+ * Load the track after `afterId` onto `deck`, skipping ones that can't join,
+ * or a bridge clip first when one is due between the two.
+ */
 async function queueAfter(afterId, deck) {
-  const { track, skipped } = nextPlayable(afterId);
+  const after = isBridgeId(afterId) ? bridgeInfo.get(afterId)?.after ?? null : afterId;
+  const { track, skipped } = nextPlayable(after);
   if (skipped.length) autoDj.message = `Skipped ${skipped.map((t) => `${t.name} (${skipReason(t)})`).join("; ")}.`;
   if (!track) {
     autoDj.onDeck[deck.id] = null;
     autoDj.emit();
     return null;
   }
+  const from = autoDj.tracks.find((t) => t.id === afterId);
+  if (from && readyClips().length && bridgeDue(bridges.mode, from.key?.camelot ?? null, track.key?.camelot ?? null)) {
+    const bridge = await loadBridge(deck, from).catch(() => null);
+    if (bridge) {
+      autoDj.emit();
+      return bridge;
+    }
+  }
   await loadOnto(deck, track);
   autoDj.emit();
   return track;
+}
+
+/** A bridge clip, looped to length, onto `deck` (after the track `from`). */
+async function loadBridge(deck, from) {
+  busy = true;
+  try {
+    const b = await makeBridge();
+    if (!b) return null;
+    await deck.load(b.file, { known: { tempo: b.tempo, key: null }, byApp: true });
+    const id = `bridge:${++bridgeCount}`;
+    bridgeInfo.set(id, { after: from.id, name: b.name });
+    autoDj.onDeck[deck.id] = id;
+    return { id, name: b.name };
+  } finally {
+    busy = false;
+  }
 }
 
 export async function startAutoDj() {
@@ -382,6 +427,8 @@ export async function startAutoDj() {
   mix.autoPolish = false; // Auto DJ settles or polishes each track itself
   autoDj.onDeck = { a: null, b: null };
   autoDj.mixes = 0;
+  bridges.used = 0;
+  bridgeInfo.clear();
   const intro = setBpm ? `Set tempo ${fmt(setBpm)} BPM.` : "Tempo journey: every track settles to its own tempo after its blend.";
   autoDj.message = intro;
   autoDj.emit();
@@ -472,8 +519,10 @@ function tick() {
   });
   // Tracks with a "?" tempo wander a little: keep their blends short.
   const unsure = !t.sure || !next.analysis.tempo?.sure;
-  const buildUp = choice.kind === "blend" && buildUpDue();
-  const bars = choice.kind === "bridge" ? 3 : buildUp ? 8 : unsure ? Math.min(8, autoDj.bars) : autoDj.bars;
+  // Into or out of a bridge clip: a short blend, no build-up.
+  const viaClip = isBridgeId(autoDj.onDeck[now.id]) || isBridgeId(autoDj.onDeck[next.id]);
+  const buildUp = choice.kind === "blend" && !viaClip && buildUpDue();
+  const bars = choice.kind === "bridge" ? 3 : viaClip ? BRIDGE_BLEND_BARS : buildUp ? 8 : unsure ? Math.min(8, autoDj.bars) : autoDj.bars;
   // Mix out on the last 8-bar phrase line that leaves room for the blend (or
   // the bridge), starting the preparation a few seconds before it. A bridge
   // that stretches the next track needs longer to get ready.
@@ -486,7 +535,7 @@ function tick() {
       ? (point - now.position) / now.speed <= lead
       : mixOutIn({ position: now.position, duration: now.duration, speed: now.speed, bpm: t.bpm, bars }) <= 0;
   if (!due) return;
-  const nextName = autoDj.tracks.find((x) => x.id === autoDj.onDeck[next.id])?.name ?? "the next track";
+  const nextName = nameOfId(autoDj.onDeck[next.id]) || "the next track";
   if (choice.kind === "bridge") {
     autoDj.message = `${nextName}: echo-out bridge (${choice.why}).`;
     autoDj.emit();
@@ -505,7 +554,10 @@ function tick() {
   }
   if (choice.kind === "blend" && opts.ok) {
     autoDj.mixes++;
-    if (bars < autoDj.bars) {
+    if (isBridgeId(autoDj.onDeck[next.id])) {
+      autoDj.message = `Bridge: ${nextName} carries the beat into the next track.`;
+      autoDj.emit();
+    } else if (bars < autoDj.bars && !viaClip) {
       autoDj.message = "A track with a ? tempo: blending over 8 bars to keep the beats tight.";
       autoDj.emit();
     }
@@ -552,7 +604,7 @@ mix.subscribe(() => {
   autoDj.onDeck[freeId] = null;
   lastNow = decks[mix.state.to];
   void queueAfter(playingTrack, decks[freeId]);
-  void afterBlend(decks[mix.state.to]);
+  if (!isBridgeId(playingTrack)) void afterBlend(decks[mix.state.to]);
 });
 
 // The DJ touching a deck hands control back.
