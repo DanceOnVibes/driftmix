@@ -7,7 +7,7 @@
  */
 import { audioContext } from "./engine.js";
 import { analyzeBuffer, localGrid } from "./analysis.js";
-import { trimClip, loopClip, clipBpmFromName, BRIDGE_BARS } from "../lib/bridgeClip.js";
+import { trimClip, loopClip, clipBpmFromName, clipLoopBpm, BRIDGE_BARS } from "../lib/bridgeClip.js";
 import { encodeWav } from "../lib/files/wav.js";
 import { tidyName } from "../lib/files/naming.js";
 
@@ -66,6 +66,8 @@ async function readClip(clip) {
         firstBeat = g.beat - Math.round((g.beat - firstBeat) / beat) * beat;
       }
     }
+    // Clips are made at a whole tempo (or the one in their name): loop at exactly that.
+    if (bpm) bpm = clipLoopBpm(bpm, named);
     const trim = trimClip(buffer.duration, { bpm, firstBeat });
     if (!bpm) throw new Error("no steady beat found (put its tempo in the name, e.g. “drums 128”)");
     if (!trim) throw new Error(`too short: under 4 bars at ${Math.round(bpm)} BPM`);

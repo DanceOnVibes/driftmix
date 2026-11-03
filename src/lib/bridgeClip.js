@@ -93,3 +93,18 @@ export function clipBpmFromName(name) {
   const n = m ? Number(m[1].replace(",", ".")) : NaN;
   return n >= 60 && n <= 200 ? n : null;
 }
+
+/**
+ * The tempo a clip loops at. A reading over a short clip is a hair off
+ * (134.96 for a 135 clip), and a loop repeats that error at every join (9 ms
+ * per 8 bars here, a little stumble each time). Clips are made at a whole
+ * tempo, so: the tempo in the clip's name when the reading agrees with it
+ * (within 0.5%), else the nearest whole BPM when the reading is that close
+ * (within 0.06), else the reading as it is.
+ */
+export function clipLoopBpm(read, named = null) {
+  if (!(read > 0)) return named > 0 ? named : null;
+  if (named > 0 && Math.abs(read / named - 1) < 0.005) return named;
+  const whole = Math.round(read);
+  return Math.abs(read - whole) <= 0.06 ? whole : read;
+}
