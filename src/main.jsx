@@ -5,6 +5,8 @@ import "./styles.css";
 import { startKeeping } from "./audio/keep.js";
 import { startApp, app } from "./audio/app.js";
 import { findDemo } from "./audio/demo.js";
+import { startIncoming } from "./audio/incoming.js";
+import { startNowPlaying } from "./audio/nowPlaying.js";
 
 createRoot(document.getElementById("root")).render(
   <StrictMode>
@@ -20,6 +22,10 @@ startApp();
 document.documentElement.dataset.version = app.version;
 // A demo set, if this copy of DriftMix has one.
 void findDemo();
+// Tracks shared to DriftMix (phone) or opened with it (computer).
+startIncoming();
+// What's playing, on the lock screen and the headphone buttons.
+startNowPlaying();
 
 // Add ?debug to the address to look inside from the browser console
 // (used by the automated tests: deck positions, tempos, fader levels).

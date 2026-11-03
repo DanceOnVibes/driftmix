@@ -33,6 +33,33 @@ self.addEventListener("message", (event) => {
   if (event.data === "update") self.skipWaiting();
 });
 
+// Share › DriftMix (phone): the shared tracks arrive here (see share_target
+// in the app manifest). They're kept on the device for a moment, then
+// DriftMix opens and takes them (src/audio/incoming.js). Nothing is uploaded.
+const SHARED = "shared-tracks";
+self.addEventListener("fetch", (event) => {
+  const req = event.request;
+  const url = new URL(req.url);
+  if (req.method !== "POST" || url.origin !== self.location.origin || !url.pathname.endsWith("/share-target")) return;
+  event.respondWith(
+    (async () => {
+      try {
+        const form = await req.formData();
+        const cache = await caches.open(SHARED);
+        let i = 0;
+        for (const file of form.getAll("tracks")) {
+          if (!(file instanceof File)) continue;
+          const headers = { "content-type": file.type || "application/octet-stream", "x-name": encodeURIComponent(file.name || "Shared track") };
+          await cache.put(new Request(`./shared/${Date.now()}-${i++}`), new Response(file, { headers }));
+        }
+      } catch {
+        /* nothing kept: the page says so */
+      }
+      return Response.redirect("./?shared=1#autodj", 303);
+    })(),
+  );
+});
+
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET" || new URL(req.url).origin !== self.location.origin) return;
