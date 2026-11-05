@@ -1,7 +1,7 @@
 // Bridges (clips between tracks) tests. Run with: npm test
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { trimClip, loopClip, bridgeDue, clipBpmFromName, BRIDGE_BARS } from "./bridgeClip.js";
+import { trimClip, loopClip, bridgeDue, clipBpmFromName, clipLoopBpm, BRIDGE_BARS } from "./bridgeClip.js";
 
 const SR = 44100;
 
@@ -51,4 +51,13 @@ test("a tempo in the clip's name", () => {
   assert.equal(clipBpmFromName("Perc loop 124 BPM.mp3"), 124);
   assert.equal(clipBpmFromName("Bridge 07 - riser.wav"), null);
   assert.equal(clipBpmFromName("Bridge 07.wav"), null, "a clip number isn't a tempo");
+});
+
+test("loop tempo: the clip's real whole tempo, so repeats don't stumble", () => {
+  assert.equal(clipLoopBpm(134.96, 135), 135, "the name agrees: 135");
+  assert.equal(clipLoopBpm(134.96, null), 135, "no tempo in the name: nearest whole BPM");
+  assert.equal(clipLoopBpm(128.03, null), 128);
+  assert.equal(clipLoopBpm(126.5, null), 126.5, "really between two: left as read");
+  assert.equal(clipLoopBpm(133.3, 128), 133.3, "a name that doesn't match the audio is ignored");
+  assert.equal(clipLoopBpm(null, 135), 135, "nothing read: the name");
 });
