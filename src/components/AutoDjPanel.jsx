@@ -32,7 +32,10 @@ import {
   setBuildUps,
   setOrderBy,
   undoClear,
+  applySetType,
+  setStopAfter,
 } from "../audio/autodj.js";
+import { SET_TYPES, STOP_AFTER } from "../lib/setTypes.js";
 
 const TEMPOS = [120, 122, 124, 125, 126, 128, 130, 132, 134, 136, 138, 140, 145, 150];
 
@@ -160,6 +163,28 @@ export function AutoDjPanel() {
       <Fold id="autodj-settings" summary={autoDjSummary(firstBpm)}>
         <div className="autodj-tools">
           <label className="tempo-choice">
+            <span>Set type</span>
+            <select value={autoDj.setType} onChange={(e) => applySetType(e.target.value)} disabled={autoDj.on} data-testid="set-type">
+              {Object.entries(SET_TYPES).map(([value, t]) => (
+                <option key={value} value={value}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="tempo-choice" title="Auto DJ ends the set on the track that reaches about this long, and lets it play to its end.">
+            <span>Set length</span>
+            <select value={String(autoDj.stopAfter)} onChange={(e) => setStopAfter(e.target.value)} disabled={autoDj.on} data-testid="stop-after">
+              {STOP_AFTER.map((m) => (
+                <option key={m} value={String(m)}>
+                  {m ? `About ${m} min` : "Whole playlist"}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="autodj-tools">
+          <label className="tempo-choice">
             <span>Set tempo</span>
             <select
               value={String(autoDj.tempoChoice)}
@@ -222,7 +247,7 @@ export function AutoDjPanel() {
           ? "No tracks yet. Press Add tracks, or drop a folder's worth of files here."
           : `${ready.length} of ${tracks.length} tracks ready${readingCount ? ` · reading ${readingCount}…` : ""}${
               setBpm ? ` · set tempo ${fmt(setBpm)} BPM` : autoDj.tempoChoice === "journey" ? " · tempo journey" : ""
-            }${length ? ` · about ${formatTime(length)} of music` : ""}`}
+            }${length ? ` · about ${formatTime(length)} of music` : ""}${autoDj.stopAfter ? ` · the set stops after about ${autoDj.stopAfter} min` : ""}`}
       </p>
       {hint && (
         <p className="muted fnote" data-testid="autodj-hint">
@@ -344,6 +369,7 @@ function autoDjSummary(firstBpm) {
   const t = autoDj.tempoChoice;
   const tempo = t === "first" ? `first track${firstBpm ? ` (${fmt(firstBpm)})` : ""}` : t === "journey" ? "journey" : `${t} BPM`;
   return [
+    autoDj.setType !== "custom" ? SET_TYPES[autoDj.setType]?.label : autoDj.stopAfter ? `About ${autoDj.stopAfter} min` : "",
     `Tempo: ${tempo}`,
     ORDER_BY[autoDj.orderBy],
     `${autoDj.bars} bars`,

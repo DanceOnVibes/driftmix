@@ -31,6 +31,7 @@ import { retunedReading } from "../lib/files/retune.js";
 import { offerUndo } from "./files.js";
 import { bridges, makeBridge, readyClips } from "./bridges.js";
 import { bridgeDue, BRIDGE_BLEND_BARS } from "../lib/bridgeClip.js";
+import { SET_TYPES, STOP_AFTER, lastTrack } from "../lib/setTypes.js";
 
 const AUDIO_NAME = /\.(mp3|wav|flac|aiff?|m4a|aac|ogg|opus)$/i;
 
@@ -48,6 +49,9 @@ export const autoDj = {
   bridge: true, // echo-out bridge when tracks can't blend (off = skip them)
   buildUps: "off", // "off" | "third" (every third mix) | "every": a build-up instead of a blend
   orderBy: "keys", // what "Order" puts first: "keys" | "tempo-up" | "tempo-down"
+  setType: "custom", // a set type from lib/setTypes.js, or "custom"
+  stopAfter: 0, // minutes: end the set on the track that reaches about this long (0 = the whole playlist)
+  startedAt: 0, // audio-clock time the set started
   mixes: 0, // mixes made in this set (for "every third")
   onDeck: { a: null, b: null }, // which playlist track is on each deck
   message: "",
@@ -179,6 +183,8 @@ export function restoreTracks({ tracks, settings }) {
     if (typeof settings.bridge === "boolean") autoDj.bridge = settings.bridge;
     if (["off", "third", "every"].includes(settings.buildUps)) autoDj.buildUps = settings.buildUps;
     if (ORDER_BY[settings.orderBy]) autoDj.orderBy = settings.orderBy;
+    if (STOP_AFTER.includes(settings.stopAfter)) autoDj.stopAfter = settings.stopAfter;
+    if (SET_TYPES[settings.setType]) autoDj.setType = settings.setType;
   }
   autoDj.emit();
   return added.length;
@@ -232,6 +238,7 @@ export function undoClear() {
 export function setOrderBy(value) {
   if (!ORDER_BY[value]) return;
   autoDj.orderBy = value;
+  autoDj.setType = "custom";
   autoDj.emit();
 }
 
@@ -300,6 +307,7 @@ export function setTempo() {
 export function setTempoChoice(value) {
   if (autoDj.on) return;
   autoDj.tempoChoice = value === "first" || value === "journey" ? value : Number(value);
+  autoDj.setType = "custom";
   autoDj.emit();
 }
 
@@ -310,6 +318,33 @@ export function setBridge(on) {
 
 export function setBuildUps(value) {
   autoDj.buildUps = ["off", "third", "every"].includes(value) ? value : "off";
+  autoDj.setType = "custom";
+  autoDj.emit();
+}
+
+/** How long the set runs: the whole playlist (0), or about this many minutes. */
+export function setStopAfter(minutes) {
+  autoDj.stopAfter = STOP_AFTER.includes(Number(minutes)) ? Number(minutes) : 0;
+  autoDj.setType = "custom";
+  autoDj.emit();
+}
+
+/**
+ * Pick a set type (Warm-up, Gym, Peak time, Chill): its order, tempo, blends,
+ * build-ups and length in one go, and the playlist put in that order.
+ */
+export function applySetType(id) {
+  const type = SET_TYPES[id];
+  if (!type || autoDj.on) return;
+  if (type.settings) Object.assign(autoDj, type.settings);
+  autoDj.setType = id;
+  if (!type.settings) {
+    autoDj.emit();
+    return;
+  }
+  const ready = autoDj.tracks.filter((t) => t.status === "ready").length;
+  if (ready >= 3) sortSet();
+  autoDj.message = `${type.label}: ${type.about}.${ready >= 3 && autoDj.message ? ` ${autoDj.message}` : ""}`;
   autoDj.emit();
 }
 
@@ -372,6 +407,18 @@ async function loadOnto(deck, track) {
  * or a bridge clip first when one is due between the two.
  */
 async function queueAfter(afterId, deck) {
+  // A set with a time limit ends on the track that reaches it (played to its end).
+  const playing = deck === decks.a ? decks.b : decks.a;
+  if (autoDj.stopAfter && playing.buffer && !isBridgeId(afterId)) {
+    const elapsed = audioContext().currentTime - autoDj.startedAt;
+    const remaining = Math.max(0, playing.duration - playing.position) / (playing.speed || 1);
+    if (lastTrack(autoDj.stopAfter, elapsed, remaining)) {
+      autoDj.onDeck[deck.id] = null;
+      autoDj.message = `About ${autoDj.stopAfter} minutes: ${nameOfId(afterId) || "this"} is the last track and plays to its end.`;
+      autoDj.emit();
+      return null;
+    }
+  }
   const after = isBridgeId(afterId) ? bridgeInfo.get(afterId)?.after ?? null : afterId;
   const { track, skipped } = nextPlayable(after);
   if (skipped.length) autoDj.message = `Skipped ${skipped.map((t) => `${t.name} (${skipReason(t)})`).join("; ")}.`;
@@ -457,7 +504,8 @@ export async function startAutoDj() {
   }
   setCrossfader(-1);
   busy = true;
-  decks.a.startAt(audioContext().currentTime, 0);
+  autoDj.startedAt = audioContext().currentTime;
+  decks.a.startAt(autoDj.startedAt, 0);
   busy = false;
   await queueAfter(first.id, decks.b);
   lastNow = decks.a;
@@ -628,6 +676,7 @@ export function setLength() {
 
 export function setBars(n) {
   autoDj.bars = n;
+  autoDj.setType = "custom";
   autoDj.emit();
 }
 

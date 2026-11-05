@@ -16,3 +16,6 @@ ul { padding-left: 20px; }
 li { margin: 4px 0; }
 footer { max-width: 760px; margin: 0 auto; padding: 16px 16px 32px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.85rem; }
 footer a { color: var(--muted); }
+/* The Files page: its "Open Files" button. */
+.open { display: inline-block; margin-top: 18px; padding: 10px 20px; border-radius: 999px; background: linear-gradient(180deg, var(--gold-bright), var(--gold)); color: #120d04; font-weight: 700; text-decoration: none; }
+.open:hover { color: #120d04; filter: brightness(1.05); }

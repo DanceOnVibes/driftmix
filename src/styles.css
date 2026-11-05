@@ -474,3 +474,12 @@ button.pad:active { background: rgba(212, 166, 74, 0.18); }
 .mixcard-title { display: inline-flex; align-items: center; gap: 8px; font-size: 0.85rem; }
 .mixcard-title input { background: #000; color: var(--text); border: 1px solid rgba(212, 166, 74, 0.5); border-radius: 999px; padding: 8px 14px; font: 0.9rem var(--sans); width: min(260px, 60vw); }
 .mixcard-img { width: min(360px, 100%); height: auto; border-radius: 12px; border: 1px solid var(--line); }
+
+/* From your tracks: what fits after the playing one. */
+.crate { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; }
+.crate-head { margin: 0; font-size: 0.85rem; color: var(--gold-bright); }
+.crate-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.crate-list li { display: grid; grid-template-columns: 1fr auto; grid-template-areas: "name btn" "meta btn"; align-items: center; column-gap: 10px; }
+.crate-name { grid-area: name; color: var(--text); font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.crate-meta { grid-area: meta; color: var(--muted); font-size: 0.78rem; }
+.crate-list .btn { grid-area: btn; }
