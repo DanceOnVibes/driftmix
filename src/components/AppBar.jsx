@@ -105,6 +105,9 @@ export function AppMenu() {
             <br />
             Time-stretch by <a href="https://signalsmith-audio.co.uk/code/stretch/">Signalsmith Stretch</a> (<a href="/licenses/signalsmith-stretch.txt">MIT</a>)
           </p>
+          <p className="menu-note" data-testid="trademarks">
+            Pioneer DJ, rekordbox, CDJ and XDJ are trademarks of their owners. DriftMix is independent and isn&apos;t made, endorsed or supported by them: the names only say what DriftMix works with.
+          </p>
         </div>
       )}
     </div>
