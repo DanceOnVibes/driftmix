@@ -20,7 +20,8 @@ export const setRec = {
   state: "idle", // idle | recording | finishing | done | error
   seconds: 0,
   bytes: 0,
-  entries: [], // { at: seconds into the recording, name, key }
+  entries: [], // { at: seconds into the recording, name, key, camelot, bpm }
+  final: [], // the finished tracklist as entries (for the mix card)
   output: null, // { url, name, size, seconds }
   tracklist: "",
   message: "",
@@ -122,11 +123,12 @@ function nameOn(deck) {
   return nameOfId(id) || deck.name || "Untitled";
 }
 
-function mark(atTime, name, key) {
+function mark(atTime, name, key, deck) {
   if (setRec.state !== "recording" || !name) return;
   const at = Math.max(0, atTime - startTime);
   setRec.entries = setRec.entries.filter((e) => e.key !== key);
-  setRec.entries.push({ at, name, key });
+  // Key and tempo as the audience heard them (after any key fix or tempo match), for the mix card.
+  setRec.entries.push({ at, name, key, camelot: deck?.playingCamelot ?? null, bpm: deck?.playingBpm ?? null });
   setRec.entries.sort((a, b) => a.at - b.at);
   setRec.emit();
 }
@@ -155,7 +157,7 @@ export async function startSetRecording() {
   // Whatever is already playing starts the tracklist.
   const playing = Object.values(decks).filter((d) => d.playing);
   const main = playing.sort((x, y) => (y.fader || 0) - (x.fader || 0))[0];
-  if (main) mark(ctx.currentTime, nameOn(main), `start-${main.id}`);
+  if (main) mark(ctx.currentTime, nameOn(main), `start-${main.id}`, main);
   setRec.emit();
 }
 
@@ -170,7 +172,8 @@ export function stopSetRecording() {
     done = (m) => {
       done = null;
       const entries = setRec.entries.filter((e) => e.at < m.seconds - 1);
-      const list = tracklistText(dedupe(entries));
+      setRec.final = dedupe(entries);
+      const list = tracklistText(setRec.final);
       const blob = new Blob([m.bytes], { type: "audio/mpeg" });
       setRec.output = { url: URL.createObjectURL(blob), name: `DriftMix set ${stampName}.mp3`, size: blob.size, seconds: m.seconds };
       setRec.tracklist = list;
@@ -204,6 +207,7 @@ export function discardOutput() {
   if (setRec.output?.url) URL.revokeObjectURL(setRec.output.url);
   setRec.output = null;
   setRec.tracklist = "";
+  setRec.final = [];
   if (setRec.state === "done" || setRec.state === "error") setRec.state = "idle";
   setRec.emit();
 }
@@ -223,7 +227,7 @@ mix.subscribe(() => {
   lastMix = s;
   if ((s.status === "waiting" || s.status === "blending") && s.when && s.to) {
     const key = `mix-${s.to}-${s.when.toFixed(3)}`;
-    mark(s.when + (s.swapAt ?? 0), nameOn(decks[s.to]), key);
+    mark(s.when + (s.swapAt ?? 0), nameOn(decks[s.to]), key, decks[s.to]);
     pending = key;
   } else if (s.status === "idle" && pending) {
     // Cancelled before it finished: take its mark out.
@@ -243,7 +247,7 @@ for (const deck of Object.values(decks)) {
     if (!started || isActive() || setRec.state !== "recording") return;
     const other = deck.id === "a" ? decks.b : decks.a;
     if (other.playing) return;
-    mark(deck.playStart, nameOn(deck), `play-${deck.id}-${deck.playStart.toFixed(3)}`);
+    mark(deck.playStart, nameOn(deck), `play-${deck.id}-${deck.playStart.toFixed(3)}`, deck);
   });
 }
 
