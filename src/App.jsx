@@ -119,7 +119,7 @@ export function App() {
           Made by The Drift3r · <a href={SITE}>thedrift3r.com</a>
         </p>
         <p>
-          Free and open source (AGPL-3.0) · <a href={SOURCE}>Source code</a> · <a href="./privacy">Privacy</a> · More in the ⚙ menu
+          Free and open source (AGPL-3.0) · <a href={SOURCE}>Source code</a> · <a href="./about">About</a> · <a href="./privacy">Privacy</a> · More in the ⚙ menu
         </p>
         <p className="muted">
           © {new Date().getFullYear()} DanceOnVibes Limited. Registered in England and Wales, company no. 17423769.

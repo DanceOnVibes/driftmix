@@ -483,3 +483,8 @@ button.pad:active { background: rgba(212, 166, 74, 0.18); }
 .crate-name { grid-area: name; color: var(--text); font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .crate-meta { grid-area: meta; color: var(--muted); font-size: 0.78rem; }
 .crate-list .btn { grid-area: btn; }
+
+/* The few lines in the page itself while the app starts (and for search engines). */
+.prerender { max-width: 720px; margin: 40px auto; padding: 0 16px; color: var(--muted); }
+.prerender h1 { margin: 0 0 12px; color: #f2efe9; font: 400 2.4rem/1.1 var(--serif); }
+.prerender h1 small { color: var(--gold); font: 0.95rem var(--sans); margin-left: 8px; }
