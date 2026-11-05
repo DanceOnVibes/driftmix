@@ -234,6 +234,11 @@ export function AutoDjPanel() {
           {autoDj.message}
         </p>
       )}
+      {autoDj.on && mix.lastCoach && (
+        <p className="coach" data-testid="autodj-coach">
+          <span className="coach-tag">Last mix</span> {mix.lastCoach}
+        </p>
+      )}
 
       <SetRecorder />
       {tracks.length > 0 && (

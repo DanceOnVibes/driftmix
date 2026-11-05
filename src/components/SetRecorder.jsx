@@ -1,6 +1,8 @@
 import { useEffect, useReducer, useState } from "react";
 import { formatTime } from "../lib/mixer.js";
 import { setRec, startSetRecording, stopSetRecording, discardOutput, setAutoStop } from "../audio/setrec.js";
+import { drawMixCard } from "../audio/mixCard.js";
+import { files } from "../audio/files.js";
 
 /**
  * Record the set: one button, then the MP3 and a tracklist timed for YouTube
@@ -82,7 +84,72 @@ export function SetRecorder() {
               <p className="fnote muted">Paste it into a YouTube description and each line becomes a chapter (YouTube needs at least 3, starting at 00:00).</p>
             </>
           )}
+          {setRec.final.length > 0 && <MixCard key={out.url} />}
         </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The mix card: a picture of the set (length, tracks, tempo, key path,
+ * tracklist) to post or send. Made on this device; no audio in it.
+ */
+function MixCard() {
+  const [title, setTitle] = useState("My DriftMix set");
+  const [card, setCard] = useState(null); // { url, file }
+  const [status, setStatus] = useState("");
+  useEffect(() => () => card && URL.revokeObjectURL(card.url), [card]);
+
+  async function make() {
+    setStatus("Making the card…");
+    try {
+      const blob = await drawMixCard({ title: title.trim(), by: files.common.artist || "", date: new Date(), seconds: setRec.output.seconds, entries: setRec.final });
+      const name = `${(title.trim() || "DriftMix set").replace(/[\\/:*?"<>|]+/g, " ").trim()} - mix card.png`;
+      setCard({ url: URL.createObjectURL(blob), file: new File([blob], name, { type: "image/png" }) });
+      setStatus("");
+    } catch {
+      setStatus("Couldn't make the card in this browser.");
+    }
+  }
+
+  const canShare = Boolean(card && navigator.canShare?.({ files: [card.file] }));
+  async function share() {
+    try {
+      await navigator.share({ files: [card.file], title: title.trim() || "My DriftMix set", text: setRec.tracklist });
+    } catch {
+      /* closed the share sheet: nothing to do */
+    }
+  }
+
+  return (
+    <div className="mixcard" data-testid="mixcard">
+      <p className="mixcard-head">Mix card</p>
+      <p className="fnote muted">A picture of your set to post: tracklist with times, tempo and the key path. Made on this device; no audio in it.</p>
+      <div className="autodj-tools">
+        <label className="mixcard-title">
+          <span className="muted">Title</span>
+          <input type="text" value={title} maxLength={60} onChange={(e) => setTitle(e.target.value)} data-testid="mixcard-title" />
+        </label>
+        <button type="button" className="btn btn-gold" onClick={() => void make()} data-testid="mixcard-make">
+          {card ? "Make it again" : "Make the mix card"}
+        </button>
+      </div>
+      {status && <p className="fnote">{status}</p>}
+      {card && (
+        <>
+          <img className="mixcard-img" src={card.url} alt={`Mix card: ${title}`} data-testid="mixcard-img" />
+          <div className="autodj-tools">
+            {canShare && (
+              <button type="button" className="btn btn-gold" onClick={() => void share()} data-testid="mixcard-share">
+                Share
+              </button>
+            )}
+            <a className={`btn ${canShare ? "btn-ghost" : "btn-gold"}`} href={card.url} download={card.file.name} data-testid="mixcard-save">
+              Save image
+            </a>
+          </div>
+        </>
       )}
     </div>
   );

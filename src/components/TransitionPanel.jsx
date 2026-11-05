@@ -206,6 +206,11 @@ export function TransitionPanel() {
           {state.message}
         </p>
       )}
+      {state.status === "done" && state.coach && (
+        <p className="coach" data-testid="coach">
+          <span className="coach-tag">How it was done</span> {state.coach}
+        </p>
+      )}
     </section>
   );
 }

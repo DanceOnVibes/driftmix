@@ -463,3 +463,14 @@ button.pad:active { background: rgba(212, 166, 74, 0.18); }
 .step-now .step-mark { border-color: var(--gold-bright); color: var(--gold-bright); }
 .first-mix-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .first-mix-done { border-color: var(--gold); }
+
+/* The coach: what the last mix did, in plain words. */
+.coach { margin: 0; font-size: 0.85rem; color: var(--text); line-height: 1.45; }
+.coach-tag { display: inline-block; margin-right: 6px; padding: 1px 8px; border: 1px solid rgba(212, 166, 74, 0.5); border-radius: 999px; color: var(--gold); font-size: 0.7rem; letter-spacing: 0.08em; text-transform: uppercase; vertical-align: 1px; }
+
+/* The mix card after a recorded set. */
+.mixcard { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; }
+.mixcard-head { margin: 0; color: var(--gold-bright); font-weight: 700; }
+.mixcard-title { display: inline-flex; align-items: center; gap: 8px; font-size: 0.85rem; }
+.mixcard-title input { background: #000; color: var(--text); border: 1px solid rgba(212, 166, 74, 0.5); border-radius: 999px; padding: 8px 14px; font: 0.9rem var(--sans); width: min(260px, 60vw); }
+.mixcard-img { width: min(360px, 100%); height: auto; border-radius: 12px; border: 1px solid var(--line); }

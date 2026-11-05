@@ -27,12 +27,14 @@ import { planTransition, refinePlan, blendCurves } from "../lib/transition.js";
 import { planBridge, settlePoint } from "../lib/bridge.js";
 import { rollPattern, pickSnippet, snippetCandidates } from "../lib/buildup.js";
 import { tempoMatch, keyMatch, keyFixes } from "../lib/match.js";
+import { coachLine } from "../lib/coach.js";
 
 /** What the transition is doing, for the screen. */
 export const mix = {
   state: { status: "idle" }, // idle | preparing | waiting | blending | done | error
   autoPolish: true, // after a blend, swap in a clean copy (Auto DJ does its own)
   ready: null, // { id, tempo, status: "working" | "ready" | "failed" } for the next deck's stretched copy
+  lastCoach: "", // what the last mix did, in plain words (lib/coach.js)
   listeners: new Set(),
   set(patch) {
     this.state = { ...patch };
@@ -285,7 +287,7 @@ export async function startTransition({ bars, useFix, phraseBars = 1 }) {
   nowMid.linearRampToValueAtTime(MID_CUT, swap + plan.swapLength);
 
   next.startAt(when, plan.nextStart);
-  current = { now, next, plan: { ...plan, nextBpm: heardBpm }, token };
+  current = { now, next, plan: { ...plan, nextBpm: heardBpm }, token, coach: { kind: "blend", bars: plan.bars, phrase: phraseBars > 1, semitones, toNativeBpm: xb.bpm } };
 
   const shift = semitones ? `, key shifted ${semitones > 0 ? "+" : ""}${semitones} semitone${Math.abs(semitones) > 1 ? "s" : ""}` : "";
   const base = { from: now.id, to: next.id, when, end, bars: plan.bars, swapAt: plan.swapAt, blendSeconds: plan.blendSeconds, nextBpm: heardBpm, semitones, refined: plan.refined };
@@ -297,7 +299,11 @@ export async function startTransition({ bars, useFix, phraseBars = 1 }) {
 }
 
 function finish() {
-  const { now, next, plan, cleanup } = current;
+  const { now, next, plan, cleanup, coach } = current;
+  // What just happened, in plain words (read before the old deck stops).
+  const line = coach
+    ? coachLine({ ...coach, to: next.id.toUpperCase(), fromKey: now.playingCamelot, toKey: next.playingCamelot, toHeardBpm: plan.nextBpm || next.playingBpm })
+    : "";
   clearTimers();
   current = null;
   cleanup?.();
@@ -309,7 +315,8 @@ function finish() {
   if (mix.autoPolish) void polish(next, next.speed, { heardBpm: next.heardBpm });
   const r = Math.round(plan.nextBpm * 10) / 10;
   const bpm = Number.isInteger(r) ? r : r.toFixed(1);
-  mix.set({ status: "done", from: now.id, to: next.id, message: plan.nextBpm > 0 ? `Done. ${next.id.toUpperCase()} is playing at ${bpm} BPM.` : `Done. ${next.id.toUpperCase()} is playing.` });
+  mix.lastCoach = line;
+  mix.set({ status: "done", from: now.id, to: next.id, coach: line, message: plan.nextBpm > 0 ? `Done. ${next.id.toUpperCase()} is playing at ${bpm} BPM.` : `Done. ${next.id.toUpperCase()} is playing.` });
 }
 
 /** Stop a transition and put things back as they were before it. */
@@ -513,7 +520,7 @@ export async function startBridge({ ratio = 1, heardBpm = null, why = "" } = {})
     echo.feedback.gain.cancelScheduledValues(c);
     echo.feedback.gain.setValueAtTime(0.55, c);
   };
-  current = { now, next, plan: { nextStart, nextBpm: playsAt ?? 0 }, token, cleanup, bridge: true };
+  current = { now, next, plan: { nextStart, nextBpm: playsAt ?? 0 }, token, cleanup, bridge: true, coach: { kind: "bridge", why, toNativeBpm: nativeBpm } };
   const base = { from: now.id, to: next.id, when: t0, end: t2, swapAt: t1 - t0, drop: t1, bridge: true, nextBpm: playsAt, why };
   mix.set({ ...base, status: "waiting", message: `Echo-out bridge on the next phrase${why ? ` (${why})` : ""}…` });
   timers.push(
@@ -735,7 +742,7 @@ export async function startBuildUp({ bars = 8, from = "incoming", useFix = true,
   };
   // Leave the last echoes ringing when it finishes normally: only stop
   // what hasn't played yet (nothing, by then) and free the channel later.
-  current = { now, next, plan: { nextStart, nextBpm: heardBpm }, token, cleanup, buildUp: true };
+  current = { now, next, plan: { nextStart, nextBpm: heardBpm }, token, cleanup, buildUp: true, coach: { kind: "buildUp", semitones, toNativeBpm: next.analysis.tempo?.bpm ?? null } };
   const what = snip ? (snippet ? `${snippet.name} rolls` : from === "outgoing" ? `${N}'s last words roll out` : `a taste of ${X} rolls in`) : "a riser builds";
   const shift = semitones ? `, key shifted ${semitones > 0 ? "+" : ""}${semitones}` : "";
   const base = { from: now.id, to: next.id, when: t0, end: t2, swapAt: t1 - t0, drop: t1, buildUp: true, nextBpm: heardBpm, snippetFrom: snip ? (snippet ? "pad" : from) : null, semitones };
