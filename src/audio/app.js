@@ -95,16 +95,33 @@ export function applyUpdate() {
 /**
  * "Check for updates" (⚙ menu): asks for a new version now instead of
  * waiting for the half-hourly check.
- * @returns {Promise<"update"|"latest"|"offline">}
+ * @returns {Promise<"update"|"latest"|"offline"|"failed">}
+ *   offline: the phone or computer has no connection; failed: it has, but the
+ *   check didn't get through (worth another try)
  */
 export async function checkForUpdate() {
   if (app.update) return "update";
-  if (!registration) return "offline";
-  try {
-    await registration.update();
-  } catch {
-    return "offline";
+  if (typeof navigator !== "undefined" && navigator.onLine === false) return "offline";
+  // Not registered yet (still starting, or the first try failed): find it, or register now.
+  if (!registration && "serviceWorker" in navigator) {
+    try {
+      registration = (await navigator.serviceWorker.getRegistration("./")) || (await navigator.serviceWorker.register("./sw.js", { scope: "./" }));
+    } catch {
+      /* below */
+    }
   }
+  if (!registration) return "failed";
+  // One retry: a phone waking up or switching Wi-Fi often fails the first request.
+  let ok = false;
+  for (let i = 0; i < 2 && !ok; i++) {
+    try {
+      await registration.update();
+      ok = true;
+    } catch {
+      if (i === 0) await new Promise((r) => setTimeout(r, 1500));
+    }
+  }
+  if (!ok) return navigator.onLine === false ? "offline" : "failed";
   // A new version installs in the background; give it a moment to say so.
   for (let i = 0; i < 20 && !app.update; i++) {
     if (!registration.installing) break;
