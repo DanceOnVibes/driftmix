@@ -21,3 +21,10 @@
   Cache-Control: no-cache
 /manifest.webmanifest
   Cache-Control: no-cache
+
+# The Android app (Google Play) checks this file to know it belongs to
+# driftmix.app, so it opens full screen with no address bar.
+/.well-known/assetlinks.json
+  Content-Type: application/json
+  Access-Control-Allow-Origin: *
+  Cache-Control: no-cache
