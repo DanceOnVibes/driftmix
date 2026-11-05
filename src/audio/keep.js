@@ -6,7 +6,8 @@
  * only: nothing is uploaded. Each track is stored once, even when it's in
  * both lists. With the tracks go their titles, exact BPM, key shifts, what
  * was read from them (so they don't have to be read again), the Auto DJ
- * settings and the sample pads. Converted files aren't kept: they're quick to make again.
+ * settings, the sample pads and the tracks on the two decks (with their cue
+ * point). Converted files aren't kept: they're quick to make again.
  *
  * Saving waits until the lists have been put back, so a refresh can never
  * save an empty list over the kept one. If the browser won't store anything
@@ -17,6 +18,7 @@ import { files, restoreItems } from "./files.js";
 import { autoDj, restoreTracks } from "./autodj.js";
 import { sampler, restorePads } from "./sampler.js";
 import { bridges, restoreClips } from "./bridges.js";
+import { decks } from "./engine.js";
 
 const DB = "driftmix-keep";
 const AUDIO = "audio"; // key → File
@@ -94,11 +96,27 @@ function snapshot() {
       .filter((c) => c.status === "ready")
       .map((c) => ({ key: need(c.file), name: c.name, bpm: c.bpm, firstBeat: c.firstBeat, bars: c.bars, start: c.start, end: c.end })),
   };
-  return { fileList, playlist, audio };
+  // The tracks on the decks (not Auto DJ's bridges: they're made fresh each time).
+  const onDecks = [decks.a, decks.b].map((d) =>
+    d.loaded && d.buffer && !/\(bridge\)\.wav$/i.test(d.loaded.file.name)
+      ? {
+          key: need(d.loaded.file),
+          retune: d.loaded.retune,
+          known: d.analysis.status === "done" ? { tempo: d.analysis.tempo, key: d.analysis.key } : null,
+          cue: d.cue,
+        }
+      : null,
+  );
+  return { fileList, playlist, onDecks, audio };
 }
 
+/** What's on the decks, in short: a save only when it changes. */
+const decksSig = () => [decks.a, decks.b].map((d) => (d.loaded ? `${keyOf(d.loaded.file)}@${d.cue}:${d.analysis.status}` : "")).join("|");
+let savedDecks = "";
+
 async function save() {
-  const { fileList, playlist, audio } = snapshot();
+  const { fileList, playlist, onDecks, audio } = snapshot();
+  const sig = decksSig();
   const db = await openDb();
   // New tracks first, one per step (they're big).
   for (const [key, file] of audio) {
@@ -112,6 +130,7 @@ async function save() {
   const tx = db.transaction([LISTS, AUDIO], "readwrite");
   tx.objectStore(LISTS).put(fileList, "files");
   tx.objectStore(LISTS).put(playlist, "autodj");
+  tx.objectStore(LISTS).put(onDecks, "decks");
   // The pads are small: kept whole, audio and all (only when they changed).
   const padsVersion = sampler.padsVersion;
   if (padsVersion !== savedPads)
@@ -126,6 +145,7 @@ async function save() {
   }
   await finished(tx);
   savedPads = padsVersion;
+  savedDecks = sig;
 }
 
 let savedPads = 0;
@@ -150,14 +170,15 @@ export async function startKeeping() {
     if (typeof indexedDB === "undefined") throw new Error("no storage");
     const db = await openDb();
     const tx = db.transaction([LISTS, AUDIO], "readonly");
-    const [fileList, playlist, keys, pads] = await Promise.all([
+    const [fileList, playlist, keys, pads, onDecks] = await Promise.all([
       asked(tx.objectStore(LISTS).get("files")),
       asked(tx.objectStore(LISTS).get("autodj")),
       asked(tx.objectStore(AUDIO).getAllKeys()),
       asked(tx.objectStore(LISTS).get("pads")),
+      asked(tx.objectStore(LISTS).get("decks")),
     ]);
     for (const key of keys) stored.add(String(key));
-    const wanted = [...new Set([...(fileList || []).map((e) => e.key), ...(playlist?.tracks || []).map((e) => e.key), ...(playlist?.clips || []).map((e) => e.key)])].filter((k) => stored.has(k));
+    const wanted = [...new Set([...(fileList || []).map((e) => e.key), ...(playlist?.tracks || []).map((e) => e.key), ...(playlist?.clips || []).map((e) => e.key), ...(onDecks || []).filter(Boolean).map((e) => e.key)])].filter((k) => stored.has(k));
     const read = db.transaction(AUDIO, "readonly");
     const got = await Promise.all(wanted.map((k) => asked(read.objectStore(AUDIO).get(k))));
     const byKey = new Map(wanted.map((k, i) => [k, got[i]]));
@@ -176,6 +197,26 @@ export async function startKeeping() {
       restorePads(pads);
       savedPads = sampler.padsVersion;
     }
+    // The decks: the same tracks back, at their cue point, ready to play (not playing).
+    const back = [];
+    (onDecks || []).forEach((e, i) => {
+      const file = e && byKey.get(e.key);
+      const deck = i === 0 ? decks.a : decks.b;
+      if (!file || deck.loaded) return;
+      back.push(
+        deck
+          .load(file, { known: e.known?.tempo ? e.known : null, byApp: true, retune: e.retune || null })
+          .then(() => {
+            if (deck.loaded?.file !== file || deck.playing || typeof e.cue !== "number" || !(e.cue > 0 && e.cue < deck.duration)) return;
+            deck.cue = e.cue;
+            deck.offset = e.cue;
+            deck.emit();
+          })
+          .catch(() => {}),
+      );
+    });
+    await Promise.all(back);
+    savedDecks = decksSig();
     if (backTracks.length && !autoDj.message) {
       autoDj.message = `Welcome back: your playlist of ${backTracks.length} is still here.`;
       autoDj.emit();
@@ -188,6 +229,7 @@ export async function startKeeping() {
   autoDj.subscribe(scheduleSave);
   bridges.subscribe(scheduleSave);
   sampler.subscribe(() => sampler.padsVersion !== savedPads && scheduleSave());
+  for (const d of [decks.a, decks.b]) d.subscribe(() => decksSig() !== savedDecks && scheduleSave());
   scheduleSave();
   // Ask the browser not to clear the kept tracks when space runs low.
   try {

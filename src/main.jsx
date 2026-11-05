@@ -6,6 +6,7 @@ import { startKeeping } from "./audio/keep.js";
 import { startApp, app } from "./audio/app.js";
 import { findDemo } from "./audio/demo.js";
 import { startIncoming } from "./audio/incoming.js";
+import { startLeavingGuard } from "./audio/leaving.js";
 import { startNowPlaying } from "./audio/nowPlaying.js";
 
 createRoot(document.getElementById("root")).render(
@@ -24,6 +25,8 @@ document.documentElement.dataset.version = app.version;
 void findDemo();
 // Tracks shared to DriftMix (phone) or opened with it (computer).
 startIncoming();
+// Ask before closing the tab only when music, a recording or unsaved takes would be lost.
+startLeavingGuard();
 // What's playing, on the lock screen and the headphone buttons.
 startNowPlaying();
 

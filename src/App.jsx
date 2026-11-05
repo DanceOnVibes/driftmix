@@ -11,6 +11,8 @@ import { decks, crossfader, setCrossfader } from "./audio/engine.js";
 import { autoDj } from "./audio/autodj.js";
 import { tabs, TABS, goTo } from "./audio/tabs.js";
 import { HeadphonesPanel, ControllerPanel } from "./components/GearPanel.jsx";
+import { FirstMix } from "./components/FirstMix.jsx";
+import { demo, playDemo } from "./audio/demo.js";
 
 const SITE = "https://thedrift3r.com";
 const SOURCE = "https://github.com/DanceOnVibes/driftmix";
@@ -51,11 +53,15 @@ export function App() {
           </nav>
           <AppMenu />
         </div>
-        <p className="status">Two decks, BPM and key, match light, one-press transitions, Auto DJ, Samples, Vocal Booth and Files.</p>
+        <p className="status hero-line">
+          Load two tracks: DriftMix tells you if they&apos;ll mix, then mixes them on the beat. Nothing uploaded, no sign-up.
+        </p>
+        <DemoStrip />
       </header>
 
       <main>
         <div className={group("decks")} data-tab="decks">
+        <FirstMix />
         <div className="decks">
           <DeckPanel deck={decks.a} title="Deck A" />
           <DeckPanel deck={decks.b} title="Deck B" />
@@ -83,7 +89,7 @@ export function App() {
         <p className="hint">
           {crossfader.locked
             ? "The transition is doing the fade. The crossfader is yours again when it ends."
-            : "Double-click the crossfader to centre it. Mixing works best on a laptop."}
+            : "Double-click the crossfader to centre it."}
         </p>
         <div className="gear-grid">
           <HeadphonesPanel />
@@ -108,7 +114,7 @@ export function App() {
       <TabBar />
 
       <footer className="foot">
-        <p className="promise">Your tracks and your voice never leave your computer. Nothing is uploaded.</p>
+        <p className="promise">Your tracks and your voice never leave your device. Nothing is uploaded.</p>
         <p className="made-by">
           Made by The Drift3r · <a href={SITE}>thedrift3r.com</a>
         </p>
@@ -120,6 +126,36 @@ export function App() {
           Registered office: 167–169 Great Portland Street, London W1W 5PF, United Kingdom.
         </p>
       </footer>
+    </div>
+  );
+}
+
+/** The front door for someone new: hear what DriftMix does, in one tap. */
+function DemoStrip() {
+  const [, refresh] = useReducer((n) => n + 1, 0);
+  useEffect(() => {
+    const offs = [demo.subscribe(refresh), autoDj.subscribe(refresh), decks.a.subscribe(refresh), decks.b.subscribe(refresh)];
+    return () => offs.forEach((off) => off());
+  }, []);
+  const fresh = !decks.a.buffer && !decks.b.buffer && !autoDj.on && autoDj.tracks.length === 0;
+  if (!fresh || (demo.status !== "ready" && demo.status !== "loading")) return null;
+  return (
+    <div className="demo-strip" data-testid="demo-strip">
+      <button
+        type="button"
+        className="btn btn-gold"
+        onClick={() => {
+          goTo("decks");
+          void playDemo();
+        }}
+        disabled={demo.status === "loading"}
+        data-testid="demo-front"
+      >
+        {demo.status === "loading" ? "Loading the demo…" : "▶ Hear a demo mix"}
+      </button>
+      <span className="muted">
+        {demo.tracks.length} tracks by The Drift3r, mixed live by Auto DJ. Watch the decks.
+      </span>
     </div>
   );
 }
