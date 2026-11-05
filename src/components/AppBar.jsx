@@ -64,7 +64,15 @@ export function AppMenu() {
   const runCheck = async () => {
     setCheck("Checking…");
     const result = await checkForUpdate();
-    setCheck(result === "update" ? "A new version is ready: press Update at the top." : result === "latest" ? "You have the latest version." : "Can't check right now (offline?).");
+    setCheck(
+      result === "update"
+        ? "A new version is ready: press Update at the top."
+        : result === "latest"
+          ? "You have the latest version."
+          : result === "offline"
+            ? "You're offline. DriftMix still works; check again when you're connected."
+            : `Couldn't reach the update check. Try again in a minute. You're on version ${app.version}.`,
+    );
   };
   return (
     <div className="menu" ref={ref}>
