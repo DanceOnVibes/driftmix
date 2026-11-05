@@ -7,7 +7,7 @@
  * With no demo.json, there's no demo button.
  */
 import { addTracks, autoDj, startAutoDj } from "./autodj.js";
-import { audioContext } from "./engine.js";
+import { audioContext, decks } from "./engine.js";
 
 export const demo = {
   tracks: [], // { file, title } from demo.json
@@ -36,6 +36,21 @@ export async function findDemo() {
   demo.emit();
 }
 
+/** The demo tracks as files, named by their titles. */
+async function demoFiles(list) {
+  return Promise.all(
+    list.map(async (t) => {
+      const res = await fetch(`./demo/${encodeURIComponent(t.file)}`);
+      if (!res.ok) throw new Error("missing");
+      const blob = await res.blob();
+      // Named by its title, so the decks show "Dracula's Land", not "draculas-land".
+      const ext = (t.file.match(/\.[^.]+$/) || [".mp3"])[0];
+      const name = t.title || t.file.replace(/\.[^.]+$/, "");
+      return { file: new File([blob], `${name}${ext}`, { type: blob.type || "audio/mpeg" }), name };
+    }),
+  );
+}
+
 /** Load the demo tracks into Auto DJ and start the set. */
 export async function playDemo() {
   if (demo.status !== "ready" || autoDj.on) return;
@@ -43,18 +58,7 @@ export async function playDemo() {
   demo.status = "loading";
   demo.emit();
   try {
-    const files = await Promise.all(
-      demo.tracks.map(async (t) => {
-        const res = await fetch(`./demo/${encodeURIComponent(t.file)}`);
-        if (!res.ok) throw new Error("missing");
-        const blob = await res.blob();
-        // Named by its title, so the decks show "Dracula's Land", not "draculas-land".
-        const ext = (t.file.match(/\.[^.]+$/) || [".mp3"])[0];
-        const name = t.title || t.file.replace(/\.[^.]+$/, "");
-        return { file: new File([blob], `${name}${ext}`, { type: blob.type || "audio/mpeg" }), name };
-      }),
-    );
-    addTracks(files);
+    addTracks(await demoFiles(demo.tracks));
     // Wait for the tempo and key of each, then go.
     const started = Date.now();
     while (autoDj.tracks.some((t) => t.status === "reading") && Date.now() - started < 60000) await new Promise((r) => setTimeout(r, 200));
@@ -65,4 +69,20 @@ export async function playDemo() {
     demo.status = "failed";
     demo.emit();
   }
+}
+
+/** The first mix guide: two demo tracks straight onto the decks, for someone with none to hand. */
+export async function demoOnDecks() {
+  if (demo.status !== "ready") return;
+  void audioContext();
+  demo.status = "loading";
+  demo.emit();
+  try {
+    const [a, b] = await demoFiles(demo.tracks.slice(0, 2));
+    await Promise.all([decks.a.load(a.file), decks.b.load(b.file)]);
+    demo.status = "ready";
+  } catch {
+    demo.status = "failed";
+  }
+  demo.emit();
 }

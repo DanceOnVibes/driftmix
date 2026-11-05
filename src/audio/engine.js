@@ -122,6 +122,7 @@ export class Deck {
     this.id = id;
     this.buffer = null;
     this.name = "";
+    this.loaded = null; // { file, retune }: the last thing loaded
     this.peaks = null;
     /**
      * Tempo and key: { status: "none" | "working" | "done" | "failed",
@@ -296,6 +297,7 @@ export class Deck {
     const channels = [];
     for (let c = 0; c < buffer.numberOfChannels; c++) channels.push(buffer.getChannelData(c));
     this.buffer = buffer;
+    this.loaded = { file, retune }; // what was loaded, so a refresh can put it back (keep.js)
     this.clearStretch();
     this.name = tidyName(file.name);
     this.peaks = computePeaks(channels, WAVEFORM_BARS);

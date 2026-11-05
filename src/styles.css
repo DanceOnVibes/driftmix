@@ -445,3 +445,21 @@ button.pad:active { background: rgba(212, 166, 74, 0.18); }
 .clip-list { margin: 0; padding-left: 24px; display: grid; gap: 4px; font-size: 0.85rem; }
 .clip-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: center; }
 .clip-list .row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Front door: what you get, and a demo in one tap. */
+.hero-line { flex-basis: 100%; color: var(--text); font-size: 0.95rem; }
+.demo-strip { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; font-size: 0.85rem; }
+
+/* The first mix guide. */
+.first-mix { margin: 0 auto 16px; max-width: 980px; padding: 14px 18px; background: var(--bg-raised); border: 1px solid rgba(212, 166, 74, 0.5); border-radius: 14px; display: flex; flex-direction: column; gap: 10px; }
+.first-mix-head { margin: 0; color: var(--gold-bright); font-weight: 700; }
+.first-mix-sub { margin: 0; font-size: 0.85rem; }
+.first-mix-steps { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; font-size: 0.9rem; }
+.first-mix-steps li { display: flex; align-items: flex-start; gap: 10px; color: var(--muted); }
+.first-mix-steps .step-now { color: var(--text); }
+.first-mix-steps .step-done { color: var(--muted); text-decoration: line-through; text-decoration-color: rgba(212, 166, 74, 0.5); }
+.step-mark { flex: none; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; border: 1px solid rgba(212, 166, 74, 0.5); color: var(--gold); font-size: 0.75rem; font-weight: 700; }
+.step-done .step-mark { background: linear-gradient(180deg, var(--gold-bright), var(--gold)); color: #120d04; border-color: transparent; }
+.step-now .step-mark { border-color: var(--gold-bright); color: var(--gold-bright); }
+.first-mix-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.first-mix-done { border-color: var(--gold); }
