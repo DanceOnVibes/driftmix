@@ -1,6 +1,9 @@
 import { useEffect, useReducer } from "react";
 import { assessMatch } from "../lib/match.js";
-import { heard, nowAndNext } from "../audio/transition.js";
+import { heard, nowAndNext, isActive } from "../audio/transition.js";
+import { files } from "../audio/files.js";
+import { autoDj } from "../audio/autodj.js";
+import { fitsAfter, loadFromCrate } from "../audio/crate.js";
 
 const WORDS = { green: "Green", amber: "Amber", red: "Red" };
 
@@ -19,6 +22,8 @@ function useDeckChanges(deck) {
 export function MatchPanel({ a, b }) {
   useDeckChanges(a);
   useDeckChanges(b);
+  useDeckChanges(files);
+  useDeckChanges(autoDj);
   const [now, next] = nowAndNext();
   // The now deck as the audience hears it (after any stretch or key shift).
   const nowHeard = heard(now);
@@ -78,6 +83,7 @@ export function MatchPanel({ a, b }) {
           ))}
         </ul>
       )}
+      <FromCrate now={now} next={next} level={m.level} />
     </section>
   );
 }
@@ -85,4 +91,37 @@ export function MatchPanel({ a, b }) {
 function fmt(bpm) {
   const r = Math.round(bpm * 10) / 10;
   return Number.isInteger(r) ? String(r) : r.toFixed(1);
+}
+
+/**
+ * "From your tracks": when the next deck is empty or the pair doesn't fit,
+ * up to three tracks already in Files or the Auto DJ playlist that would mix
+ * well after the playing one, each a tap away from the next deck.
+ */
+function FromCrate({ now, next, level }) {
+  const wanted = now.buffer && now.analysis.status === "done" && !next.playing && !autoDj.on && !isActive() && (!next.buffer || level === "red" || level === "amber");
+  if (!wanted) return null;
+  const fits = fitsAfter(now);
+  if (!fits.length) return null;
+  const X = next.id.toUpperCase();
+  return (
+    <div className="crate" data-testid="crate">
+      <p className="crate-head">
+        {fits.length === 1 ? "1 of your tracks fits" : `${fits.length} of your tracks fit`} after {now.name || now.id.toUpperCase()}:
+      </p>
+      <ul className="crate-list">
+        {fits.map((f) => (
+          <li key={f.id}>
+            <span className="crate-name">{f.name}</span>
+            <span className="crate-meta">
+              {fmt(f.bpm)} · {f.camelot} · {f.why}
+            </span>
+            <button type="button" className="btn btn-ghost btn-small" onClick={() => void loadFromCrate(next, f)} data-testid="crate-load">
+              Load on {X}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }

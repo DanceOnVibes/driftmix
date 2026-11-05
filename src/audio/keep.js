@@ -90,7 +90,7 @@ function snapshot() {
     tracks: autoDj.tracks
       .filter((t) => t.status !== "failed")
       .map((t) => ({ key: need(t.file), name: t.name, plan: t.plan, found: t.found, duration: t.sourceDuration })),
-    settings: { tempoChoice: autoDj.tempoChoice, bars: autoDj.bars, bridge: autoDj.bridge, buildUps: autoDj.buildUps, orderBy: autoDj.orderBy, clipMode: bridges.mode },
+    settings: { tempoChoice: autoDj.tempoChoice, bars: autoDj.bars, bridge: autoDj.bridge, buildUps: autoDj.buildUps, orderBy: autoDj.orderBy, clipMode: bridges.mode, setType: autoDj.setType, stopAfter: autoDj.stopAfter },
     // Bridge clips, with what was read from them (so they don't have to be read again).
     clips: bridges.clips
       .filter((c) => c.status === "ready")
