@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>DriftMix · by The Drift3r</title>
-    <meta name="description" content="Free, simple DJ transition tool by The Drift3r. Runs in your browser; your music never leaves your device." />
+    <title>DriftMix by The Drift3r · free DJ app in your browser</title>
+    <meta name="description" content="DriftMix by The Drift3r is a free DJ app that runs in your browser: two decks, BPM and key, a match light, one-press transitions, Auto DJ, Samples, Vocal Booth and Files. Nothing is uploaded." />
     <meta name="theme-color" content="#050403" />
     <!-- driftmix.app is the real address (the workers.dev one is a copy). -->
     <link rel="canonical" href="https://driftmix.app/" />
@@ -24,10 +24,49 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="DriftMix" />
+    <!-- For search engines and AI answers: what DriftMix is, who makes it, where it lives. -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "DriftMix by The Drift3r",
+        "alternateName": "DriftMix DJ",
+        "url": "https://driftmix.app/",
+        "description": "A free DJ app that runs in the web browser: two decks that read BPM and Camelot key, a match light that says if two tracks will mix, one-press beat-matched transitions, Auto DJ with set recording, sample pads, a vocal booth and a file converter that writes BPM and key tags. Audio is processed on the device and never uploaded.",
+        "applicationCategory": "MultimediaApplication",
+        "applicationSubCategory": "DJ software",
+        "operatingSystem": "Any modern web browser (Chrome, Edge, Safari, Firefox) on Windows, macOS, Linux, Android and iOS",
+        "browserRequirements": "Requires JavaScript and Web Audio",
+        "isAccessibleForFree": true,
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "GBP" },
+        "license": "https://www.gnu.org/licenses/agpl-3.0.html",
+        "author": { "@type": "Person", "name": "The Drift3r", "url": "https://thedrift3r.com" },
+        "publisher": {
+          "@type": "Organization",
+          "name": "DanceOnVibes Limited",
+          "url": "https://danceonvibes.co.uk",
+          "address": { "@type": "PostalAddress", "addressLocality": "London", "addressCountry": "GB" }
+        },
+        "sameAs": ["https://github.com/DanceOnVibes/driftmix", "https://thedrift3r.com"]
+      }
+    </script>
   </head>
   <body>
-    <div id="root"></div>
-    <noscript>DriftMix needs JavaScript to run in your browser.</noscript>
+    <div id="root">
+      <!-- Shown for a moment while the app starts, and read by search engines; the app replaces it. -->
+      <main class="prerender">
+        <h1>DriftMix <small>by The Drift3r</small></h1>
+        <p>A free DJ app that runs in your browser. Load two tracks: DriftMix tells you if they'll mix, then mixes them on the beat. Nothing uploaded, no sign-up.</p>
+        <ul>
+          <li>Two decks with BPM, Camelot key and a match light</li>
+          <li>One-press transitions: blend, echo-out and build-up</li>
+          <li>Auto DJ with set types, set recording and a shareable mix card</li>
+          <li>Samples, Vocal Booth and Files (BPM and key tags, loudness, extended mixes)</li>
+        </ul>
+        <p><a href="./about">About DriftMix</a> · <a href="./files">Files</a> · <a href="./privacy">Privacy</a></p>
+      </main>
+    </div>
+    <noscript><p class="prerender">DriftMix needs JavaScript to run in your browser.</p></noscript>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
